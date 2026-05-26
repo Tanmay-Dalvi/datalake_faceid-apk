@@ -51,44 +51,45 @@ export default function EnrollScreen() {
   };
 
   const handleCapture = async (frameData?: Uint8Array) => {
-    const mockFrame = new Uint8Array(112 * 112 * 4);
-    // Fill with realistic frame data (centered brightness with variance to pass blur/lighting checks)
-    for (let i = 0; i < mockFrame.length; i += 4) {
-      mockFrame[i] = 125 + Math.floor(Math.random() * 40 - 20);     // R
-      mockFrame[i + 1] = 125 + Math.floor(Math.random() * 40 - 20); // G
-      mockFrame[i + 2] = 125 + Math.floor(Math.random() * 40 - 20); // B
-      mockFrame[i + 3] = 255;                                       // A
-    }
+    try {
+      const mockFrame = new Uint8Array(112 * 112 * 4);
+      // Fill with realistic frame data (centered brightness with variance to pass blur/lighting checks)
+      for (let i = 0; i < mockFrame.length; i += 4) {
+        mockFrame[i] = 125 + Math.floor(Math.random() * 40 - 20);     // R
+        mockFrame[i + 1] = 125 + Math.floor(Math.random() * 40 - 20); // G
+        mockFrame[i + 2] = 125 + Math.floor(Math.random() * 40 - 20); // B
+        mockFrame[i + 3] = 255;                                       // A
+      }
 
-    const quality = PreprocessingService.assessFrameQuality(mockFrame, 112, 112);
-    setQualityScore(quality);
+      const quality = PreprocessingService.assessFrameQuality(mockFrame, 112, 112);
+      setQualityScore(quality);
 
-    if (quality < 0.3) {
-      Alert.alert('Poor Quality', 'Frame quality too low. Adjust lighting and try again.');
-      return;
-    }
+      if (quality < 0.3) {
+        Alert.alert('Poor Quality', 'Frame quality too low. Adjust lighting and try again.');
+        return;
+      }
 
-    if (!FaceRecognitionService.isModelLoaded()) {
-      // Try to re-initialize on the fly if not loaded yet
-      try {
-        await FaceRecognitionService.initialize();
-      } catch (err) {
+      if (!FaceRecognitionService.isModelLoaded()) {
+        // Try to re-initialize on the fly if not loaded yet
+        try {
+          await FaceRecognitionService.initialize();
+        } catch (err: any) {
+          Alert.alert(
+            'Model Offline',
+            `The offline facial recognition model is currently initializing or failed to load. Details: ${err?.message || err}`
+          );
+          return;
+        }
+      }
+
+      const embedding = await FaceRecognitionService.extractEmbedding(mockFrame);
+      if (!embedding) {
         Alert.alert(
-          'Model Offline',
-          'The offline facial recognition model is currently initializing or failed to load. Please wait a few seconds and try again.'
+          'Capture Failed',
+          'Could not extract biometric face signature. Please adjust your face position and try again.'
         );
         return;
       }
-    }
-
-    const embedding = await FaceRecognitionService.extractEmbedding(mockFrame);
-    if (!embedding) {
-      Alert.alert(
-        'Capture Failed',
-        'Could not extract biometric face signature. Please adjust your face position and try again.'
-      );
-      return;
-    }
 
     const newEmbeddings = [...embeddings, embedding.vector];
     setEmbeddings(newEmbeddings);
@@ -109,7 +110,14 @@ export default function EnrollScreen() {
       // All angles captured — compute mean embedding
       await finalizeEnrollment(newEmbeddings);
     }
-  };
+  } catch (err: any) {
+    console.error('[EnrollScreen] handleCapture error:', err);
+    Alert.alert(
+      'Inference Debug Error',
+      `An unexpected error occurred during face processing. Details: ${err?.message || err}`
+    );
+  }
+};
 
   const finalizeEnrollment = async (allEmbeddings: Float32Array[]) => {
     setPhase('PROCESSING');
