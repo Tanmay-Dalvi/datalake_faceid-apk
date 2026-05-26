@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "DataLake FaceID",
+    "slug": "datalake-faceid",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#060B18"
+    },
+    "assetBundlePatterns": [
+      "**/*",
+      "assets/models/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.datalake.faceid",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera is required for face recognition and liveness detection."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#060B18"
+      },
+      "package": "com.datalake.faceid",
+      "permissions": [
+        "CAMERA",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
+    },
+    "plugins": [
+      "expo-camera",
+      "expo-secure-store",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "DataLake needs camera access for face recognition.",
+          "enableCodeScanner": false
+        }
+      ],
+      "expo-asset"
+    ]
+  }
+}

@@ -1,0 +1,1429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DataLake 3.0 — Offline Face ID System</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #060B18;
+    --surface: #0C1426;
+    --surface2: #111C34;
+    --primary: #00C8FF;
+    --accent: #00FFB2;
+    --warn: #FFB020;
+    --danger: #FF3B5C;
+    --success: #00E096;
+    --text: #F0F4FF;
+    --text2: rgba(240,244,255,0.55);
+    --text3: rgba(240,244,255,0.25);
+    --border: rgba(255,255,255,0.06);
+    --border2: rgba(0,200,255,0.2);
+    --font-head: 'Space Mono', monospace;
+    --font-body: 'DM Sans', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid background ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,200,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,200,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Layout ── */
+  .shell {
+    position: relative; z-index: 1;
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    grid-template-rows: 60px 1fr;
+    height: 100vh;
+    gap: 0;
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 24px;
+    background: rgba(6,11,24,0.9);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo-mark {
+    width: 32px; height: 32px;
+    border: 1.5px solid var(--primary);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-head);
+    font-size: 14px; color: var(--primary);
+  }
+
+  .app-title {
+    font-family: var(--font-head);
+    font-size: 14px; font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+
+  .app-subtitle { font-size: 11px; color: var(--text2); letter-spacing: 2px; text-transform: uppercase; }
+
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+
+  .badge {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .badge-online  { background: rgba(0,224,150,0.12); color: var(--success); border: 1px solid rgba(0,224,150,0.25); }
+  .badge-offline { background: rgba(255,59,92,0.12);  color: var(--danger);  border: 1px solid rgba(255,59,92,0.25); }
+  .badge-model   { background: rgba(0,200,255,0.08); color: var(--primary); border: 1px solid rgba(0,200,255,0.2); }
+
+  .dot-live { width: 6px; height: 6px; border-radius: 3px; background: var(--success); display: inline-block; margin-right: 5px; animation: blink 2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-section {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-label {
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 2.5px; text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 12px;
+  }
+
+  /* ── Nav items ── */
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-bottom: 2px;
+    border: 1px solid transparent;
+    font-size: 14px; color: var(--text2);
+  }
+  .nav-item:hover { background: rgba(0,200,255,0.05); color: var(--text); }
+  .nav-item.active {
+    background: rgba(0,200,255,0.08);
+    color: var(--primary);
+    border-color: rgba(0,200,255,0.15);
+  }
+  .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+  /* ── Stats in sidebar ── */
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-tile {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 10px;
+    border: 1px solid var(--border);
+  }
+  .stat-val { font-family: var(--font-head); font-size: 18px; color: var(--primary); font-weight: 700; }
+  .stat-lbl { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+
+  /* ── Recent list ── */
+  .recent-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .recent-item:last-child { border-bottom: none; }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: #000; flex-shrink: 0;
+  }
+  .recent-name { font-size: 13px; font-weight: 600; }
+  .recent-time { font-size: 11px; color: var(--text3); }
+  .recent-conf {
+    margin-left: auto;
+    font-size: 11px; font-weight: 700;
+    color: var(--success);
+    font-family: var(--font-head);
+  }
+
+  /* ── Main content ── */
+  .main { display: flex; flex-direction: column; overflow: hidden; }
+
+  .tab-bar {
+    display: flex;
+    padding: 0 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    gap: 0;
+  }
+
+  .tab {
+    padding: 14px 20px;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer;
+    color: var(--text3);
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+  }
+  .tab:hover { color: var(--text2); }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+  .tab-content { flex: 1; overflow-y: auto; padding: 24px; }
+
+  /* ── Auth Panel ── */
+  .auth-layout {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 24px;
+    height: 100%;
+  }
+
+  /* Camera frame */
+  .camera-frame {
+    background: var(--surface);
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 500px;
+  }
+
+  .camera-feed {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    border-radius: 16px;
+    display: none;
+  }
+  .camera-feed.active { display: block; }
+
+  .camera-placeholder {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 16px;
+    color: var(--text3);
+  }
+  .camera-placeholder.hidden { display: none; }
+
+  .camera-icon {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    border: 2px dashed rgba(0,200,255,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px;
+    animation: rotate 8s linear infinite;
+  }
+  @keyframes rotate { to { transform: rotate(360deg); } }
+
+  /* Scan overlay on camera */
+  .scan-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+
+  .face-target {
+    position: relative;
+    width: 260px; height: 320px;
+  }
+
+  .face-target-corner {
+    position: absolute;
+    width: 28px; height: 28px;
+    border-color: var(--primary);
+    border-style: solid;
+    opacity: 0.8;
+    transition: all 0.3s;
+  }
+  .corner-tl { top: 0; left: 0; border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+  .corner-tr { top: 0; right: 0; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+  .corner-bl { bottom: 0; left: 0; border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+  .corner-br { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+
+  .face-target.scanning .face-target-corner { animation: cornerPulse 1.5s ease-in-out infinite; }
+  .face-target.granted .face-target-corner { border-color: var(--success); animation: none; }
+  .face-target.denied .face-target-corner { border-color: var(--danger); animation: none; }
+
+  @keyframes cornerPulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
+
+  .scan-line {
+    position: absolute;
+    left: 10px; right: 10px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--primary), transparent);
+    top: 0;
+    animation: scanMove 2s ease-in-out infinite;
+    opacity: 0.8;
+  }
+  @keyframes scanMove { 0%,100%{top:10px;opacity:0} 10%{opacity:0.8} 90%{opacity:0.8} 50%{top:310px} }
+
+  /* Overlay labels */
+  .cam-label {
+    position: absolute;
+    font-size: 11px;
+    font-family: var(--font-head);
+    letter-spacing: 1.5px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+  .cam-label-phase {
+    top: 20px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,200,255,0.1);
+    border: 1px solid rgba(0,200,255,0.3);
+    color: var(--primary);
+  }
+  .cam-label-fps { bottom: 20px; right: 20px; color: var(--text3); font-size: 10px; }
+
+  /* ── Auth sidebar panel ── */
+  .auth-panel {
+    display: flex; flex-direction: column; gap: 16px;
+  }
+
+  .panel-card {
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid var(--border);
+  }
+
+  .panel-title {
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 2px;
+    color: var(--text3);
+    margin-bottom: 14px;
+  }
+
+  /* Phase steps */
+  .phase-steps { display: flex; flex-direction: column; gap: 10px; }
+  .phase-step {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    transition: all 0.2s;
+  }
+  .phase-step.active { background: rgba(0,200,255,0.06); border: 1px solid rgba(0,200,255,0.15); }
+  .phase-step.done { background: rgba(0,224,150,0.04); }
+  .phase-step.idle { opacity: 0.4; }
+
+  .step-icon {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; flex-shrink: 0;
+  }
+  .step-icon-idle { background: var(--surface2); border: 1px solid var(--border); color: var(--text3); }
+  .step-icon-active { background: rgba(0,200,255,0.15); border: 1px solid var(--primary); color: var(--primary); animation: spin 1s linear infinite; }
+  .step-icon-done { background: rgba(0,224,150,0.15); border: 1px solid var(--success); color: var(--success); }
+  .step-icon-fail { background: rgba(255,59,92,0.15); border: 1px solid var(--danger); color: var(--danger); }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .step-info { flex: 1; }
+  .step-name { font-size: 13px; font-weight: 600; }
+  .step-desc { font-size: 11px; color: var(--text3); margin-top: 1px; }
+
+  /* Confidence meters */
+  .meter { margin-bottom: 10px; }
+  .meter-header { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+  .meter-label { color: var(--text2); }
+  .meter-value { font-family: var(--font-head); font-size: 11px; color: var(--primary); }
+  .meter-track {
+    height: 4px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .meter-fill {
+    height: 100%; border-radius: 2px;
+    background: linear-gradient(90deg, var(--primary), var(--accent));
+    transition: width 0.3s ease;
+  }
+  .meter-fill.danger { background: linear-gradient(90deg, var(--danger), #ff6b6b); }
+
+  /* Challenge card */
+  .challenge-card {
+    background: rgba(0,200,255,0.05);
+    border: 1px solid rgba(0,200,255,0.2);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+    transition: all 0.3s;
+  }
+  .challenge-emoji { font-size: 36px; margin-bottom: 8px; display: block; }
+  .challenge-instruction { font-size: 14px; font-weight: 600; color: var(--text); }
+  .challenge-timer {
+    font-family: var(--font-head);
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 6px;
+  }
+
+  /* Result card */
+  .result-card {
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    display: none;
+    animation: fadeIn 0.3s ease;
+  }
+  .result-card.granted { background: rgba(0,224,150,0.08); border: 1px solid rgba(0,224,150,0.3); display: block; }
+  .result-card.denied  { background: rgba(255,59,92,0.08);  border: 1px solid rgba(255,59,92,0.3);  display: block; }
+
+  .result-icon { font-size: 40px; margin-bottom: 8px; display: block; }
+  .result-name { font-size: 18px; font-weight: 700; }
+  .result-meta { font-size: 12px; color: var(--text2); margin-top: 4px; }
+  .result-conf {
+    font-family: var(--font-head);
+    font-size: 13px;
+    margin-top: 8px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    display: inline-block;
+  }
+  .result-conf.granted { background: rgba(0,224,150,0.12); color: var(--success); }
+  .result-conf.denied  { background: rgba(255,59,92,0.12);  color: var(--danger); }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* Buttons */
+  .btn {
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 14px; font-weight: 700;
+    cursor: pointer;
+    border: none;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    font-family: var(--font-head);
+    width: 100%;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: #000;
+  }
+  .btn-primary:hover { background: #33d4ff; transform: translateY(-1px); }
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--border2); }
+  .btn-danger { background: rgba(255,59,92,0.1); color: var(--danger); border: 1px solid rgba(255,59,92,0.3); }
+
+  /* ── Dashboard tab ── */
+  .dash-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .dash-title { font-family: var(--font-head); font-size: 16px; font-weight: 700; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  .kpi-card {
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    transition: border-color 0.2s;
+  }
+  .kpi-card:hover { border-color: var(--border2); }
+  .kpi-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; }
+  .kpi-value { font-family: var(--font-head); font-size: 28px; font-weight: 700; color: var(--primary); }
+  .kpi-delta { font-size: 11px; color: var(--success); margin-top: 4px; }
+
+  .table-card {
+    background: var(--surface);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  .table-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text2); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left;
+    padding: 10px 20px;
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 2px;
+    color: var(--text3);
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 12px 20px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  tr:hover td { background: rgba(0,200,255,0.02); }
+  tr:last-child td { border-bottom: none; }
+
+  .status-pill {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .status-synced  { background: rgba(0,224,150,0.1); color: var(--success); border: 1px solid rgba(0,224,150,0.2); }
+  .status-pending { background: rgba(255,176,32,0.1); color: var(--warn); border: 1px solid rgba(255,176,32,0.2); }
+
+  /* ── Sync tab ── */
+  .sync-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+  .sync-status-card {
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+    border: 2px solid;
+    transition: all 0.3s;
+  }
+  .sync-status-card.online  { background: rgba(0,224,150,0.05); border-color: rgba(0,224,150,0.2); }
+  .sync-status-card.offline { background: rgba(255,59,92,0.05);  border-color: rgba(255,59,92,0.2); }
+
+  .sync-icon { font-size: 48px; margin-bottom: 12px; display: block; }
+  .sync-status-text { font-size: 18px; font-weight: 700; font-family: var(--font-head); }
+  .sync-desc { font-size: 13px; color: var(--text2); margin-top: 6px; }
+
+  .progress-bar {
+    height: 6px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 12px 0;
+  }
+  .progress-fill {
+    height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, var(--primary), var(--accent));
+    transition: width 0.5s ease;
+    width: 0%;
+  }
+
+  .log-box {
+    background: #020408;
+    border: 1px solid rgba(0,200,255,0.1);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: var(--font-head);
+    font-size: 11px;
+    color: rgba(0,200,255,0.7);
+    height: 180px;
+    overflow-y: auto;
+    line-height: 1.8;
+  }
+
+  /* ── Enroll tab ── */
+  .enroll-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+  .input-group { margin-bottom: 14px; }
+  .input-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text3); margin-bottom: 6px; display: block; }
+  .input-field {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: var(--font-body);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .input-field:focus { border-color: var(--border2); }
+  .input-field::placeholder { color: var(--text3); }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+    .auth-layout { grid-template-columns: 1fr; }
+    .kpi-row { grid-template-columns: 1fr 1fr; }
+    .sync-layout, .enroll-layout { grid-template-columns: 1fr; }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,200,255,0.2); border-radius: 2px; }
+
+  .model-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px;
+    background: rgba(0,200,255,0.06);
+    border: 1px solid rgba(0,200,255,0.15);
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: var(--font-head);
+    color: var(--primary);
+    margin: 2px;
+  }
+
+  .toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 40px; height: 20px;
+  }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .slider-track {
+    position: absolute; cursor: pointer; inset: 0;
+    background: var(--surface2); border-radius: 20px;
+    transition: background 0.2s;
+    border: 1px solid var(--border);
+  }
+  .slider-track::before {
+    content: '';
+    position: absolute;
+    height: 14px; width: 14px;
+    left: 2px; top: 2px;
+    background: var(--text2);
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .toggle-switch input:checked + .slider-track { background: rgba(0,200,255,0.2); border-color: var(--primary); }
+  .toggle-switch input:checked + .slider-track::before { transform: translateX(20px); background: var(--primary); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ── TOP BAR ── -->
+  <header class="topbar">
+    <div class="logo-mark">DL</div>
+    <div>
+      <div class="app-title">DataLake 3.0</div>
+      <div class="app-subtitle" style="font-size:9px;letter-spacing:1.5px;color:var(--text3)">Offline Face ID · Hackathon 7.0</div>
+    </div>
+    <div class="topbar-right">
+      <span class="badge badge-model">MobileFaceNet INT8</span>
+      <span class="badge badge-model">~13MB</span>
+      <span id="network-badge" class="badge badge-offline">● OFFLINE</span>
+    </div>
+  </header>
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <div class="section-label">Navigation</div>
+      <div class="nav-item active" onclick="switchTab('auth',this)">
+        <span class="nav-icon">◉</span> Face Authentication
+      </div>
+      <div class="nav-item" onclick="switchTab('enroll',this)">
+        <span class="nav-icon">⊕</span> Enroll Person
+      </div>
+      <div class="nav-item" onclick="switchTab('dashboard',this)">
+        <span class="nav-icon">▦</span> Dashboard
+      </div>
+      <div class="nav-item" onclick="switchTab('sync',this)">
+        <span class="nav-icon">⟳</span> Sync & Purge
+        <span id="sync-badge" style="margin-left:auto;background:rgba(255,176,32,0.15);color:var(--warn);padding:1px 8px;border-radius:20px;font-size:10px;font-weight:700;display:none">3</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-label">Live Stats</div>
+      <div class="stat-grid">
+        <div class="stat-tile">
+          <div class="stat-val" id="stat-total">24</div>
+          <div class="stat-lbl">Total today</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-val" id="stat-pending" style="color:var(--warn)">3</div>
+          <div class="stat-lbl">Pending sync</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-val" id="stat-speed">&lt;1s</div>
+          <div class="stat-lbl">Avg speed</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-val" id="stat-acc">97.2%</div>
+          <div class="stat-lbl">Accuracy</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-section" style="flex:1;overflow:auto">
+      <div class="section-label">Recent Authentications</div>
+      <div id="recent-list">
+        <div class="recent-item">
+          <div class="avatar">RK</div>
+          <div><div class="recent-name">Rahul Kumar</div><div class="recent-time">2 min ago · Field Zone A</div></div>
+          <div class="recent-conf">98.1%</div>
+        </div>
+        <div class="recent-item">
+          <div class="avatar" style="background:linear-gradient(135deg,#FFB020,#ff6b6b)">PS</div>
+          <div><div class="recent-name">Priya Sharma</div><div class="recent-time">5 min ago · Site B</div></div>
+          <div class="recent-conf">96.4%</div>
+        </div>
+        <div class="recent-item">
+          <div class="avatar" style="background:linear-gradient(135deg,#00FFB2,#00C8FF)">AM</div>
+          <div><div class="recent-name">Arjun Mehta</div><div class="recent-time">12 min ago · Field Zone A</div></div>
+          <div class="recent-conf">97.7%</div>
+        </div>
+        <div class="recent-item">
+          <div class="avatar" style="background:linear-gradient(135deg,#b347ff,#7c3aed)">SV</div>
+          <div><div class="recent-name">Sunita Verma</div><div class="recent-time">18 min ago · Site C</div></div>
+          <div class="recent-conf">95.8%</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-section" style="padding:12px 20px">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="model-tag">ArcFace</span>
+        <span class="model-tag">CLAHE</span>
+        <span class="model-tag">INT8</span>
+        <span class="model-tag">PAD</span>
+        <span class="model-tag">NNAPI</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN ── -->
+  <main class="main">
+    <div class="tab-bar">
+      <div class="tab active" id="tab-auth" onclick="switchTab('auth',null)">Face Auth</div>
+      <div class="tab" id="tab-enroll" onclick="switchTab('enroll',null)">Enroll</div>
+      <div class="tab" id="tab-dashboard" onclick="switchTab('dashboard',null)">Dashboard</div>
+      <div class="tab" id="tab-sync" onclick="switchTab('sync',null)">Sync</div>
+    </div>
+
+    <!-- ─── AUTH TAB ─── -->
+    <div class="tab-content" id="content-auth">
+      <div class="auth-layout">
+
+        <!-- Camera view -->
+        <div class="camera-frame" id="camera-frame">
+          <video id="camera-video" class="camera-feed" autoplay muted playsinline></video>
+
+          <div class="camera-placeholder" id="camera-placeholder">
+            <div class="camera-icon">⟁</div>
+            <div style="font-family:var(--font-head);font-size:13px;letter-spacing:2px">CAMERA INACTIVE</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:4px">Click "Start Authentication" to begin</div>
+          </div>
+
+          <div class="scan-overlay" id="scan-overlay" style="display:none">
+            <div class="face-target" id="face-target">
+              <div class="face-target-corner corner-tl"></div>
+              <div class="face-target-corner corner-tr"></div>
+              <div class="face-target-corner corner-bl"></div>
+              <div class="face-target-corner corner-br"></div>
+              <div class="scan-line"></div>
+            </div>
+          </div>
+
+          <div class="cam-label cam-label-phase" id="phase-label" style="display:none">INITIALIZING</div>
+          <div class="cam-label cam-label-fps" id="fps-label" style="display:none">~15 fps · On-device inference</div>
+        </div>
+
+        <!-- Right panel -->
+        <div class="auth-panel">
+
+          <!-- Phase steps -->
+          <div class="panel-card">
+            <div class="panel-title">Authentication Pipeline</div>
+            <div class="phase-steps">
+              <div class="phase-step idle" id="step-camera">
+                <div class="step-icon step-icon-idle" id="step-camera-icon">1</div>
+                <div class="step-info">
+                  <div class="step-name">Camera Init</div>
+                  <div class="step-desc">Front camera · 720p feed</div>
+                </div>
+              </div>
+              <div class="phase-step idle" id="step-passive">
+                <div class="step-icon step-icon-idle" id="step-passive-icon">2</div>
+                <div class="step-info">
+                  <div class="step-name">Passive PAD</div>
+                  <div class="step-desc">MiniXception · Anti-spoof</div>
+                </div>
+              </div>
+              <div class="phase-step idle" id="step-challenge">
+                <div class="step-icon step-icon-idle" id="step-challenge-icon">3</div>
+                <div class="step-info">
+                  <div class="step-name">Active Challenge</div>
+                  <div class="step-desc" id="step-challenge-desc">Blink / Smile / Head-turn</div>
+                </div>
+              </div>
+              <div class="phase-step idle" id="step-recognition">
+                <div class="step-icon step-icon-idle" id="step-recognition-icon">4</div>
+                <div class="step-info">
+                  <div class="step-name">Face Recognition</div>
+                  <div class="step-desc">MobileFaceNet · ArcFace</div>
+                </div>
+              </div>
+              <div class="phase-step idle" id="step-record">
+                <div class="step-icon step-icon-idle" id="step-record-icon">5</div>
+                <div class="step-info">
+                  <div class="step-name">Log & Queue</div>
+                  <div class="step-desc">AES-256 SQLite · Sync queue</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Confidence meters -->
+          <div class="panel-card">
+            <div class="panel-title">Live Confidence</div>
+            <div class="meter">
+              <div class="meter-header">
+                <span class="meter-label">Liveness (PAD)</span>
+                <span class="meter-value" id="meter-liveness-val">—</span>
+              </div>
+              <div class="meter-track"><div class="meter-fill" id="meter-liveness" style="width:0%"></div></div>
+            </div>
+            <div class="meter">
+              <div class="meter-header">
+                <span class="meter-label">Face Match Score</span>
+                <span class="meter-value" id="meter-match-val">—</span>
+              </div>
+              <div class="meter-track"><div class="meter-fill" id="meter-match" style="width:0%"></div></div>
+            </div>
+            <div class="meter" style="margin-bottom:0">
+              <div class="meter-header">
+                <span class="meter-label">Frame Quality (CLAHE)</span>
+                <span class="meter-value" id="meter-quality-val">—</span>
+              </div>
+              <div class="meter-track"><div class="meter-fill" id="meter-quality" style="width:0%"></div></div>
+            </div>
+          </div>
+
+          <!-- Challenge prompt -->
+          <div class="challenge-card" id="challenge-card" style="display:none">
+            <span class="challenge-emoji" id="challenge-emoji">👁</span>
+            <div class="challenge-instruction" id="challenge-text">Please blink your eyes</div>
+            <div class="challenge-timer" id="challenge-timer">4.0s remaining</div>
+          </div>
+
+          <!-- Result -->
+          <div id="result-granted" class="result-card granted" style="display:none">
+            <span class="result-icon">✓</span>
+            <div class="result-name" id="result-name">Rahul Kumar</div>
+            <div class="result-meta" id="result-meta">Employee #EMP-2041 · Field Zone A</div>
+            <span class="result-conf granted" id="result-conf">Similarity: 98.1%</span>
+          </div>
+          <div id="result-denied" class="result-card denied" style="display:none">
+            <span class="result-icon">✗</span>
+            <div class="result-name">Access Denied</div>
+            <div class="result-meta" id="result-deny-reason">Face not recognized or liveness check failed</div>
+            <span class="result-conf denied">Similarity below threshold</span>
+          </div>
+
+          <!-- Action button -->
+          <button class="btn btn-primary" id="auth-btn" onclick="startAuth()">START AUTHENTICATION</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── ENROLL TAB ─── -->
+    <div class="tab-content" id="content-enroll" style="display:none">
+      <div class="enroll-layout">
+        <div>
+          <div class="panel-card">
+            <div class="panel-title">New Enrollment</div>
+            <div class="input-group">
+              <label class="input-label">Full Name</label>
+              <input class="input-field" placeholder="e.g. Rahul Kumar" id="enroll-name">
+            </div>
+            <div class="input-group">
+              <label class="input-label">Employee Code</label>
+              <input class="input-field" placeholder="e.g. EMP-2042" id="enroll-code">
+            </div>
+            <div class="input-group">
+              <label class="input-label">Department / Zone</label>
+              <input class="input-field" placeholder="e.g. Field Zone A" id="enroll-dept">
+            </div>
+            <div style="margin-bottom:14px">
+              <div class="input-label" style="margin-bottom:8px;display:block">Face Capture Quality</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <div class="model-tag" style="font-size:11px">5 frames captured</div>
+                <div class="model-tag" style="font-size:11px">Multiple angles</div>
+                <div class="model-tag" style="font-size:11px">Avg embedding stored</div>
+              </div>
+            </div>
+            <button class="btn btn-primary" style="margin-bottom:8px" onclick="simulateEnroll()">CAPTURE & ENROLL</button>
+            <button class="btn btn-secondary">IMPORT FROM CSV</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="panel-card" style="margin-bottom:16px">
+            <div class="panel-title">Enrolled Persons (6)</div>
+            <div id="enrolled-list">
+              <div class="recent-item">
+                <div class="avatar">RK</div>
+                <div><div class="recent-name">Rahul Kumar</div><div class="recent-time">EMP-2041 · Field Zone A</div></div>
+                <span style="margin-left:auto;font-size:10px;color:var(--success)">Active</span>
+              </div>
+              <div class="recent-item">
+                <div class="avatar" style="background:linear-gradient(135deg,#FFB020,#ff6b6b)">PS</div>
+                <div><div class="recent-name">Priya Sharma</div><div class="recent-time">EMP-2038 · Site B</div></div>
+                <span style="margin-left:auto;font-size:10px;color:var(--success)">Active</span>
+              </div>
+              <div class="recent-item">
+                <div class="avatar" style="background:linear-gradient(135deg,#00FFB2,#00C8FF)">AM</div>
+                <div><div class="recent-name">Arjun Mehta</div><div class="recent-time">EMP-2029 · Field Zone A</div></div>
+                <span style="margin-left:auto;font-size:10px;color:var(--success)">Active</span>
+              </div>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="panel-title">Enrollment Settings</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+              <div>
+                <div style="font-size:13px;font-weight:600">Template EMA Update</div>
+                <div style="font-size:11px;color:var(--text3)">Auto-refresh templates on each auth</div>
+              </div>
+              <label class="toggle-switch"><input type="checkbox" checked><span class="slider-track"></span></label>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">
+              <div>
+                <div style="font-size:13px;font-weight:600">Outdoor Mode (CLAHE+)</div>
+                <div style="font-size:11px;color:var(--text3)">Aggressive preprocessing for sunlight</div>
+              </div>
+              <label class="toggle-switch"><input type="checkbox" checked><span class="slider-track"></span></label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── DASHBOARD TAB ─── -->
+    <div class="tab-content" id="content-dashboard" style="display:none">
+      <div class="dash-header">
+        <div class="dash-title">Today's Attendance — 24 May 2026</div>
+        <div style="font-size:12px;color:var(--text3)">Auto-refreshes every 30s</div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Total Authentications</div>
+          <div class="kpi-value">24</div>
+          <div class="kpi-delta">↑ 8 since morning</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Avg Similarity</div>
+          <div class="kpi-value" style="color:var(--success)">97.2%</div>
+          <div class="kpi-delta">Above 95% threshold</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Spoof Attempts</div>
+          <div class="kpi-value" style="color:var(--danger)">2</div>
+          <div class="kpi-delta">All blocked by PAD</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Avg Inference Time</div>
+          <div class="kpi-value" style="color:var(--accent)">0.81s</div>
+          <div class="kpi-delta">Target &lt;1s ✓</div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-header">
+          <div class="table-title">Attendance Log</div>
+          <span class="badge badge-model" style="cursor:pointer">Export CSV</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Person</th>
+              <th>Time</th>
+              <th>Zone</th>
+              <th>Similarity</th>
+              <th>Inference</th>
+              <th>Sync</th>
+            </tr>
+          </thead>
+          <tbody id="attendance-table">
+            <tr><td><div style="display:flex;align-items:center;gap:8px"><div class="avatar" style="width:24px;height:24px;font-size:9px">RK</div>Rahul Kumar</div></td><td style="color:var(--text2)">14:32:07</td><td>Field Zone A</td><td style="color:var(--success);font-family:var(--font-head)">98.1%</td><td style="color:var(--text2);font-family:var(--font-head)">0.78s</td><td><span class="status-pill status-synced">Synced</span></td></tr>
+            <tr><td><div style="display:flex;align-items:center;gap:8px"><div class="avatar" style="width:24px;height:24px;font-size:9px;background:linear-gradient(135deg,#FFB020,#ff6b6b)">PS</div>Priya Sharma</div></td><td style="color:var(--text2)">14:29:44</td><td>Site B</td><td style="color:var(--success);font-family:var(--font-head)">96.4%</td><td style="color:var(--text2);font-family:var(--font-head)">0.83s</td><td><span class="status-pill status-pending">Pending</span></td></tr>
+            <tr><td><div style="display:flex;align-items:center;gap:8px"><div class="avatar" style="width:24px;height:24px;font-size:9px;background:linear-gradient(135deg,#00FFB2,#00C8FF)">AM</div>Arjun Mehta</div></td><td style="color:var(--text2)">14:22:15</td><td>Field Zone A</td><td style="color:var(--success);font-family:var(--font-head)">97.7%</td><td style="color:var(--text2);font-family:var(--font-head)">0.79s</td><td><span class="status-pill status-synced">Synced</span></td></tr>
+            <tr><td><div style="display:flex;align-items:center;gap:8px"><div class="avatar" style="width:24px;height:24px;font-size:9px;background:linear-gradient(135deg,#b347ff,#7c3aed)">SV</div>Sunita Verma</div></td><td style="color:var(--text2)">14:16:03</td><td>Site C</td><td style="color:var(--success);font-family:var(--font-head)">95.8%</td><td style="color:var(--text2);font-family:var(--font-head)">0.91s</td><td><span class="status-pill status-pending">Pending</span></td></tr>
+            <tr><td><div style="display:flex;align-items:center;gap:8px"><div class="avatar" style="width:24px;height:24px;font-size:9px;background:linear-gradient(135deg,#ff6b9d,#ff3b5c)">MN</div>Mohan Nair</div></td><td style="color:var(--text2)">14:08:51</td><td>Field Zone B</td><td style="color:var(--success);font-family:var(--font-head)">97.2%</td><td style="color:var(--text2);font-family:var(--font-head)">0.85s</td><td><span class="status-pill status-synced">Synced</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ─── SYNC TAB ─── -->
+    <div class="tab-content" id="content-sync" style="display:none">
+      <div class="sync-layout">
+        <div>
+          <div class="sync-status-card offline" id="sync-status-card" style="margin-bottom:16px">
+            <span class="sync-icon" id="sync-main-icon">⚡</span>
+            <div class="sync-status-text" id="sync-status-text">Offline Mode Active</div>
+            <div class="sync-desc" id="sync-desc">Records queued locally. Will sync automatically when network is restored.</div>
+            <div class="progress-bar" id="sync-progress-bar" style="display:none">
+              <div class="progress-fill" id="sync-progress-fill"></div>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <div class="panel-title">Sync Configuration</div>
+            <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+              <div>
+                <div style="font-size:13px;font-weight:600">AWS Region</div>
+                <div style="font-size:11px;color:var(--text3)">ap-south-1 (Mumbai)</div>
+              </div>
+              <span class="badge badge-model">S3 + DynamoDB</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+              <div>
+                <div style="font-size:13px;font-weight:600">Batch Size</div>
+                <div style="font-size:11px;color:var(--text3)">Max 50 records per upload</div>
+              </div>
+              <span style="font-family:var(--font-head);font-size:13px;color:var(--primary)">50</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+              <div>
+                <div style="font-size:13px;font-weight:600">Retry Strategy</div>
+                <div style="font-size:11px;color:var(--text3)">Exponential backoff, max 10 retries</div>
+              </div>
+              <span style="font-family:var(--font-head);font-size:13px;color:var(--primary)">EXP</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px 0">
+              <div>
+                <div style="font-size:13px;font-weight:600">Purge After Sync</div>
+                <div style="font-size:11px;color:var(--text3)">Auto-delete after AWS ACK + 24h</div>
+              </div>
+              <label class="toggle-switch"><input type="checkbox" checked><span class="slider-track"></span></label>
+            </div>
+            <div style="margin-top:12px;display:flex;gap:8px">
+              <button class="btn btn-primary" style="flex:1" onclick="simulateSync()">TRIGGER SYNC NOW</button>
+              <button class="btn btn-secondary" style="flex:1" onclick="toggleNetwork()">TOGGLE NETWORK</button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="panel-card" style="margin-bottom:16px">
+            <div class="panel-title">Queue Status</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+              <div style="text-align:center;padding:10px;background:var(--surface2);border-radius:8px">
+                <div style="font-family:var(--font-head);font-size:20px;color:var(--warn)">3</div>
+                <div style="font-size:10px;color:var(--text3)">Pending</div>
+              </div>
+              <div style="text-align:center;padding:10px;background:var(--surface2);border-radius:8px">
+                <div style="font-family:var(--font-head);font-size:20px;color:var(--success)">21</div>
+                <div style="font-size:10px;color:var(--text3)">Synced</div>
+              </div>
+              <div style="text-align:center;padding:10px;background:var(--surface2);border-radius:8px">
+                <div style="font-family:var(--font-head);font-size:20px;color:var(--text2)">24</div>
+                <div style="font-size:10px;color:var(--text3)">Total</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <div class="panel-title" style="margin-bottom:8px">Sync Log</div>
+            <div class="log-box" id="sync-log">
+[14:30:02] Network check: OFFLINE
+[14:30:02] Queue loaded: 3 pending records
+[14:22:15] Record REC-7841 queued (Arjun Mehta)
+[14:16:03] Record REC-7840 queued (Sunita Verma)
+[13:58:44] Sync completed: 21 records uploaded
+[13:58:41] AWS ACK received: batch-uuid-44f2
+[13:58:39] Uploading batch (21 records) to S3...
+[13:58:37] Network restored — triggering sync
+[09:14:22] App started — DB initialized (AES-256)
+[09:14:21] Models loaded: MobileFaceNet + MiniXception
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let isOnline = false;
+let authRunning = false;
+let authPhase = 'idle';
+let cameraStream = null;
+let challengeType = null;
+let challengeTimer = null;
+let challengeCountdown = 4.0;
+let animFrameId = null;
+let liveMetricsInterval = null;
+
+const SAMPLE_PEOPLE = [
+  { name: 'Rahul Kumar', code: 'EMP-2041', zone: 'Field Zone A', sim: 98.1 },
+  { name: 'Priya Sharma', code: 'EMP-2038', zone: 'Site B', sim: 96.4 },
+  { name: 'Arjun Mehta', code: 'EMP-2029', zone: 'Field Zone A', sim: 97.7 },
+  { name: 'Sunita Verma', code: 'EMP-2033', zone: 'Site C', sim: 95.8 },
+];
+
+const CHALLENGES = [
+  { type: 'BLINK',     emoji: '👁', text: 'Please blink both eyes slowly' },
+  { type: 'SMILE',     emoji: '😊', text: 'Please smile for the camera' },
+  { type: 'HEAD_TURN', emoji: '↔️', text: 'Slowly turn your head to the right' },
+];
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+function switchTab(tab, navEl) {
+  ['auth','enroll','dashboard','sync'].forEach(t => {
+    document.getElementById('content-'+t).style.display = 'none';
+    document.getElementById('tab-'+t).classList.remove('active');
+  });
+  document.getElementById('content-'+tab).style.display = 'block';
+  document.getElementById('tab-'+tab).classList.add('active');
+
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  if (navEl) navEl.classList.add('active');
+}
+
+// ── Authentication Flow ────────────────────────────────────────────────────
+async function startAuth() {
+  if (authRunning) { resetAuth(); return; }
+  authRunning = true;
+
+  const btn = document.getElementById('auth-btn');
+  btn.textContent = 'STOP';
+  btn.className = 'btn btn-danger';
+
+  // Start camera
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } });
+    const video = document.getElementById('camera-video');
+    video.srcObject = cameraStream;
+    video.classList.add('active');
+    document.getElementById('camera-placeholder').classList.add('hidden');
+  } catch(e) {
+    // No camera available — show simulated feed message
+    document.getElementById('camera-placeholder').innerHTML = `
+      <div class="camera-icon" style="font-size:24px;border-color:rgba(0,200,255,0.3)">⟁</div>
+      <div style="font-family:var(--font-head);font-size:12px;letter-spacing:2px;color:var(--primary)">SIMULATED DEMO MODE</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;text-align:center;max-width:200px">No camera detected — running pipeline simulation</div>
+    `;
+  }
+
+  document.getElementById('scan-overlay').style.display = 'flex';
+  document.getElementById('phase-label').style.display = 'block';
+  document.getElementById('fps-label').style.display = 'block';
+  document.getElementById('result-granted').style.display = 'none';
+  document.getElementById('result-denied').style.display = 'none';
+
+  runAuthPipeline();
+}
+
+async function runAuthPipeline() {
+  // Step 1: Camera
+  await setStep('camera', 'active');
+  await sleep(600);
+  setMeter('quality', 87);
+  await setStep('camera', 'done');
+  setPhaseLabel('FRAME CAPTURE');
+
+  // Step 2: Passive PAD
+  await setStep('passive', 'active');
+  setPhaseLabel('PASSIVE PAD CHECK');
+  await sleep(300);
+  animateMeterTo('liveness', 0, 78, 400);
+  await sleep(500);
+  animateMeterTo('liveness', 78, 94, 300);
+  await sleep(400);
+  await setStep('passive', 'done');
+
+  // Step 3: Active challenge
+  const ch = CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
+  challengeType = ch;
+  document.getElementById('challenge-emoji').textContent = ch.emoji;
+  document.getElementById('challenge-text').textContent = ch.text;
+  document.getElementById('step-challenge-desc').textContent = ch.type.replace('_', ' ').toLowerCase();
+  document.getElementById('challenge-card').style.display = 'block';
+
+  await setStep('challenge', 'active');
+  setPhaseLabel('ACTIVE CHALLENGE');
+  setFaceTarget('scanning');
+
+  challengeCountdown = 4.0;
+  await runChallenge();
+
+  document.getElementById('challenge-card').style.display = 'none';
+  await setStep('challenge', 'done');
+
+  // Step 4: Recognition
+  await setStep('recognition', 'active');
+  setPhaseLabel('FACE RECOGNITION');
+  animateMeterTo('match', 0, 30, 200);
+  await sleep(200);
+  animateMeterTo('match', 30, 72, 200);
+  await sleep(200);
+  animateMeterTo('match', 72, 96, 200);
+  await sleep(300);
+  await setStep('recognition', 'done');
+
+  // Step 5: Record
+  await setStep('record', 'active');
+  setPhaseLabel('RECORDING');
+  await sleep(200);
+  await setStep('record', 'done');
+
+  // Result
+  const person = SAMPLE_PEOPLE[Math.floor(Math.random() * SAMPLE_PEOPLE.length)];
+  setPhaseLabel('ACCESS GRANTED');
+  setFaceTarget('granted');
+
+  document.getElementById('result-name').textContent = person.name;
+  document.getElementById('result-meta').textContent = `${person.code} · ${person.zone}`;
+  document.getElementById('result-conf').textContent = `Similarity: ${person.sim}%`;
+  document.getElementById('result-granted').style.display = 'block';
+
+  // Update recent list
+  addRecentEntry(person);
+
+  // Update stats
+  const total = parseInt(document.getElementById('stat-total').textContent) + 1;
+  document.getElementById('stat-total').textContent = total;
+
+  // Auto reset after 4s
+  setTimeout(() => { if(authRunning) resetAuth(); }, 4500);
+}
+
+async function runChallenge() {
+  return new Promise(resolve => {
+    const interval = setInterval(() => {
+      challengeCountdown -= 0.1;
+      document.getElementById('challenge-timer').textContent = `${challengeCountdown.toFixed(1)}s remaining`;
+      if (challengeCountdown <= 0) {
+        clearInterval(interval);
+        resolve();
+      }
+    }, 100);
+    // Simulate challenge completion at ~60% of time
+    setTimeout(() => {
+      clearInterval(interval);
+      document.getElementById('challenge-timer').textContent = '✓ Challenge complete';
+      setTimeout(resolve, 300);
+    }, 2400);
+  });
+}
+
+function resetAuth() {
+  authRunning = false;
+  authPhase = 'idle';
+
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+
+  const video = document.getElementById('camera-video');
+  video.srcObject = null;
+  video.classList.remove('active');
+
+  document.getElementById('camera-placeholder').style.display = 'flex';
+  document.getElementById('camera-placeholder').classList.remove('hidden');
+  document.getElementById('camera-placeholder').innerHTML = `
+    <div class="camera-icon">⟁</div>
+    <div style="font-family:var(--font-head);font-size:13px;letter-spacing:2px">CAMERA INACTIVE</div>
+    <div style="font-size:12px;color:var(--text3);margin-top:4px">Click "Start Authentication" to begin</div>
+  `;
+
+  document.getElementById('scan-overlay').style.display = 'none';
+  document.getElementById('phase-label').style.display = 'none';
+  document.getElementById('fps-label').style.display = 'none';
+  document.getElementById('challenge-card').style.display = 'none';
+
+  setFaceTarget('idle');
+  setMeter('liveness', 0);
+  setMeter('match', 0);
+  setMeter('quality', 0);
+
+  ['camera','passive','challenge','recognition','record'].forEach(s => resetStepUI(s));
+
+  const btn = document.getElementById('auth-btn');
+  btn.textContent = 'START AUTHENTICATION';
+  btn.className = 'btn btn-primary';
+}
+
+// ── Sync simulation ────────────────────────────────────────────────────────
+function simulateSync() {
+  if (!isOnline) {
+    addLog('⚠ Cannot sync — device is offline');
+    return;
+  }
+  const card = document.getElementById('sync-status-card');
+  card.className = 'sync-status-card online';
+  document.getElementById('sync-main-icon').textContent = '↑';
+  document.getElementById('sync-status-text').textContent = 'Syncing...';
+  document.getElementById('sync-desc').textContent = 'Uploading 3 pending records to AWS ap-south-1';
+
+  const progressBar = document.getElementById('sync-progress-bar');
+  const progressFill = document.getElementById('sync-progress-fill');
+  progressBar.style.display = 'block';
+  progressFill.style.width = '0%';
+
+  addLog('[' + now() + '] Network online — triggering sync');
+  addLog('[' + now() + '] Uploading batch: 3 records → S3...');
+
+  let progress = 0;
+  const interval = setInterval(() => {
+    progress += Math.random() * 25;
+    if (progress >= 100) {
+      progress = 100;
+      clearInterval(interval);
+      progressFill.style.width = '100%';
+
+      setTimeout(() => {
+        document.getElementById('sync-main-icon').textContent = '✓';
+        document.getElementById('sync-status-text').textContent = 'Sync Complete';
+        document.getElementById('sync-desc').textContent = '3 records uploaded · AWS ACK received · Purging local copies in 24h';
+        document.getElementById('stat-pending').textContent = '0';
+        document.getElementById('sync-badge').style.display = 'none';
+        addLog('[' + now() + '] AWS ACK: batch confirmed');
+        addLog('[' + now() + '] 3 records marked synced');
+        addLog('[' + now() + '] Purge scheduled for 24h');
+        progressBar.style.display = 'none';
+      }, 400);
+    }
+    progressFill.style.width = progress + '%';
+  }, 200);
+}
+
+function toggleNetwork() {
+  isOnline = !isOnline;
+  const badge = document.getElementById('network-badge');
+  const card = document.getElementById('sync-status-card');
+
+  if (isOnline) {
+    badge.textContent = '● ONLINE';
+    badge.className = 'badge badge-online';
+    card.className = 'sync-status-card online';
+    document.getElementById('sync-main-icon').textContent = '⚡';
+    document.getElementById('sync-status-text').textContent = 'Network Restored';
+    document.getElementById('sync-desc').textContent = 'Auto-sync will begin shortly...';
+    addLog('[' + now() + '] Network restored — scheduling sync');
+    setTimeout(simulateSync, 1500);
+  } else {
+    badge.textContent = '● OFFLINE';
+    badge.className = 'badge badge-offline';
+    card.className = 'sync-status-card offline';
+    document.getElementById('sync-main-icon').textContent = '⚡';
+    document.getElementById('sync-status-text').textContent = 'Offline Mode Active';
+    document.getElementById('sync-desc').textContent = 'Records queued locally. Will sync when network restores.';
+    addLog('[' + now() + '] Network lost — entering offline mode');
+  }
+}
+
+function simulateEnroll() {
+  const name = document.getElementById('enroll-name').value || 'New Person';
+  const code = document.getElementById('enroll-code').value || 'EMP-NEW';
+  const dept = document.getElementById('enroll-dept').value || 'Field';
+
+  const initials = name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+  const colors = ['linear-gradient(135deg,#00C8FF,#00FFB2)', 'linear-gradient(135deg,#FFB020,#ff6b6b)', 'linear-gradient(135deg,#b347ff,#7c3aed)'];
+  const bg = colors[Math.floor(Math.random()*colors.length)];
+
+  const list = document.getElementById('enrolled-list');
+  const item = document.createElement('div');
+  item.className = 'recent-item';
+  item.style.animation = 'fadeIn 0.3s ease';
+  item.innerHTML = `
+    <div class="avatar" style="background:${bg}">${initials}</div>
+    <div><div class="recent-name">${name}</div><div class="recent-time">${code} · ${dept}</div></div>
+    <span style="margin-left:auto;font-size:10px;color:var(--success)">Active</span>
+  `;
+  list.prepend(item);
+  document.getElementById('enroll-name').value = '';
+  document.getElementById('enroll-code').value = '';
+  document.getElementById('enroll-dept').value = '';
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function setStep(step, state) {
+  const el = document.getElementById('step-' + step);
+  const icon = document.getElementById('step-' + step + '-icon');
+  el.className = 'phase-step ' + (state === 'done' ? 'done' : state === 'active' ? 'active' : 'idle');
+  icon.className = 'step-icon step-icon-' + state;
+  if (state === 'done') icon.textContent = '✓';
+  if (state === 'fail') icon.textContent = '✗';
+  return Promise.resolve();
+}
+
+function resetStepUI(step) {
+  const el = document.getElementById('step-' + step);
+  const icon = document.getElementById('step-' + step + '-icon');
+  const nums = {camera:'1',passive:'2',challenge:'3',recognition:'4',record:'5'};
+  el.className = 'phase-step idle';
+  icon.className = 'step-icon step-icon-idle';
+  icon.textContent = nums[step];
+}
+
+function setMeter(name, val) {
+  document.getElementById('meter-' + name).style.width = val + '%';
+  document.getElementById('meter-' + name + '-val').textContent = val > 0 ? val.toFixed(0) + '%' : '—';
+}
+
+function animateMeterTo(name, from, to, duration) {
+  const start = performance.now();
+  const animate = (t) => {
+    const p = Math.min((t - start) / duration, 1);
+    const val = from + (to - from) * p;
+    setMeter(name, val);
+    if (p < 1) requestAnimationFrame(animate);
+  };
+  requestAnimationFrame(animate);
+}
+
+function setFaceTarget(state) {
+  document.getElementById('face-target').className = 'face-target ' + state;
+}
+
+function setPhaseLabel(text) {
+  document.getElementById('phase-label').textContent = text;
+}
+
+function addRecentEntry(person) {
+  const initials = person.name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+  const list = document.getElementById('recent-list');
+  const item = document.createElement('div');
+  item.className = 'recent-item';
+  item.style.animation = 'fadeIn 0.3s ease';
+  item.innerHTML = `
+    <div class="avatar">${initials}</div>
+    <div><div class="recent-name">${person.name}</div><div class="recent-time">just now · ${person.zone}</div></div>
+    <div class="recent-conf">${person.sim}%</div>
+  `;
+  list.prepend(item);
+  if (list.children.length > 5) list.removeChild(list.lastChild);
+}
+
+function addLog(msg) {
+  const log = document.getElementById('sync-log');
+  log.textContent = msg + '\n' + log.textContent;
+}
+
+function now() {
+  return new Date().toLocaleTimeString('en-IN', { hour12: false });
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>
