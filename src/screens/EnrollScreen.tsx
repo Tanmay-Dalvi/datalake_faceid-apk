@@ -68,8 +68,27 @@ export default function EnrollScreen() {
       return;
     }
 
+    if (!FaceRecognitionService.isModelLoaded()) {
+      // Try to re-initialize on the fly if not loaded yet
+      try {
+        await FaceRecognitionService.initialize();
+      } catch (err) {
+        Alert.alert(
+          'Model Offline',
+          'The offline facial recognition model is currently initializing or failed to load. Please wait a few seconds and try again.'
+        );
+        return;
+      }
+    }
+
     const embedding = await FaceRecognitionService.extractEmbedding(mockFrame);
-    if (!embedding) return;
+    if (!embedding) {
+      Alert.alert(
+        'Capture Failed',
+        'Could not extract biometric face signature. Please adjust your face position and try again.'
+      );
+      return;
+    }
 
     const newEmbeddings = [...embeddings, embedding.vector];
     setEmbeddings(newEmbeddings);

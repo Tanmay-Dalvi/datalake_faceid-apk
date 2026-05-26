@@ -30,6 +30,9 @@
         "CAMERA",
         "INTERNET",
         "ACCESS_NETWORK_STATE"
+      ],
+      "abiFilters": [
+        "arm64-v8a"
       ]
     },
     "plugins": [
