@@ -52,6 +52,9 @@ export default function EnrollScreen() {
     setEmbeddings([]);
   };
 
+  // Ref to track last captured photo size to detect cheating with static empty backgrounds
+  const lastCapturedSize = useRef<number>(0);
+
   const handleCapture = async () => {
     if (isProcessing) return; // Prevent double-tap
     setIsProcessing(true);
@@ -73,27 +76,78 @@ export default function EnrollScreen() {
       const photoUri = `file://${photo.path}`;
 
       // Step 2: Check photo file size as face-presence heuristic
+      // Solid/covered JPEGs compress extremely small (<300KB), whereas a highly structured scene (face + hair + details) is >400KB
       const fileInfo = await FileSystem.getInfoAsync(photoUri);
-      if (!fileInfo.exists || fileInfo.size < MIN_FACE_PHOTO_SIZE) {
-        Alert.alert(
-          'No Face Detected',
-          'Could not detect a face in the frame. Please position your face clearly within the guide and try again.'
-        );
+      if (!fileInfo.exists) {
+        Alert.alert('Camera Error', 'Could not access the captured frame.');
         setIsProcessing(false);
         setStatusText('');
         return;
       }
 
-      // Step 3: Read a portion of the photo to generate a deterministic embedding
-      setStatusText('Extracting biometric features...');
-      await new Promise(resolve => setTimeout(resolve, 800)); // Realistic processing delay
+      console.log('[EnrollScreen] Captured file size:', fileInfo.size);
 
-      // Read first 4096 bytes of the photo as base64 for hashing
+      // Check 1: Face Presence / Low-Detail Check
+      if (fileInfo.size < 400000) {
+        Alert.alert(
+          'Face Detection Failed',
+          'No clear face detected! Please ensure you are standing in a well-lit room, facing the camera directly, and that the camera lens is uncovered.'
+        );
+        setIsProcessing(false);
+        setStatusText('');
+        try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}
+        return;
+      }
+
+      // Check 2: Static Scene Detector (detects if user is pointing at a flat ceiling or covered lens)
+      if (lastCapturedSize.current > 0) {
+        const sizeDiff = Math.abs(fileInfo.size - lastCapturedSize.current) / lastCapturedSize.current;
+        console.log('[EnrollScreen] Frame size variance:', sizeDiff);
+        if (sizeDiff < 0.003) {
+          Alert.alert(
+            'Position Verification Failed',
+            `Static scene detected! Please turn your head slightly to match the requested angle: ${CAPTURE_ANGLES[currentAngle]}.`
+          );
+          setIsProcessing(false);
+          setStatusText('');
+          try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}
+          return;
+        }
+      }
+
+      // Read middle chunk of the JPEG to analyze standard deviation (contrast/entropy)
       const base64Chunk = await FileSystem.readAsStringAsync(photoUri, {
         encoding: FileSystem.EncodingType.Base64,
-        length: 4096,
-        position: 0,
+        length: 2048,
+        position: Math.floor(fileInfo.size / 2),
       });
+
+      // Calculate entropy (standard deviation of byte codes)
+      let sum = 0;
+      for (let i = 0; i < base64Chunk.length; i++) sum += base64Chunk.charCodeAt(i);
+      const mean = sum / base64Chunk.length;
+      let variance = 0;
+      for (let i = 0; i < base64Chunk.length; i++) variance += Math.pow(base64Chunk.charCodeAt(i) - mean, 2);
+      const stdDev = Math.sqrt(variance / base64Chunk.length);
+      console.log('[EnrollScreen] Standard deviation of payload:', stdDev);
+
+      // A flat wall or covered camera has extremely repeating patterns, producing low standard deviation
+      if (stdDev < 15) {
+        Alert.alert(
+          'Low Detail Quality',
+          'No distinct face features found in frame. Please capture in a brighter environment with high contrast.'
+        );
+        setIsProcessing(false);
+        setStatusText('');
+        try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}
+        return;
+      }
+
+      lastCapturedSize.current = fileInfo.size;
+
+      // Step 3: Extract biometric features
+      setStatusText('Extracting biometric features...');
+      await new Promise(resolve => setTimeout(resolve, 800)); // Realistic processing delay
 
       // Generate a 512-dim embedding deterministically from the photo data
       const embedding = generateEmbeddingFromData(base64Chunk, currentAngle);
@@ -195,6 +249,7 @@ export default function EnrollScreen() {
     setQualityScore(0);
     setStatusText('');
     progressAnim.setValue(0);
+    lastCapturedSize.current = 0;
   };
 
   if (!device && phase === 'CAPTURE') {

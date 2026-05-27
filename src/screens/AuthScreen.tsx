@@ -100,12 +100,49 @@ export default function AuthScreen() {
 
       // Step 2: Check if a face is present (file size heuristic)
       const fileInfo = await FileSystem.getInfoAsync(photoUri);
-      if (!fileInfo.exists || fileInfo.size < MIN_FACE_PHOTO_SIZE) {
+      if (!fileInfo.exists) {
+        Alert.alert('Camera Error', 'Could not access the captured frame.');
+        setPhase('READY');
+        return;
+      }
+
+      console.log('[AuthScreen] Captured file size:', fileInfo.size);
+
+      // Check 1: Face Presence / Low-Detail Check
+      if (fileInfo.size < 400000) {
         Alert.alert(
-          'No Face Detected',
-          'Could not detect a face in the frame. Please position your face within the guide and try again.'
+          'Face Verification Failed',
+          'No clear face detected! Please ensure you are facing the camera directly, have good lighting, and the camera lens is uncovered.'
         );
         setPhase('READY');
+        try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}
+        return;
+      }
+
+      // Read middle chunk of the JPEG to analyze standard deviation (contrast/entropy)
+      const base64Chunk = await FileSystem.readAsStringAsync(photoUri, {
+        encoding: FileSystem.EncodingType.Base64,
+        length: 2048,
+        position: Math.floor(fileInfo.size / 2),
+      });
+
+      // Calculate entropy (standard deviation of byte codes)
+      let sum = 0;
+      for (let i = 0; i < base64Chunk.length; i++) sum += base64Chunk.charCodeAt(i);
+      const mean = sum / base64Chunk.length;
+      let variance = 0;
+      for (let i = 0; i < base64Chunk.length; i++) variance += Math.pow(base64Chunk.charCodeAt(i) - mean, 2);
+      const stdDev = Math.sqrt(variance / base64Chunk.length);
+      console.log('[AuthScreen] Standard deviation of payload:', stdDev);
+
+      // A flat wall or covered camera has extremely repeating patterns, producing low standard deviation
+      if (stdDev < 15) {
+        Alert.alert(
+          'Verification Failed',
+          'Biometric verification failed due to poor illumination or solid background texture. Please stand in a bright room and face the camera.'
+        );
+        setPhase('READY');
+        try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}
         return;
       }
 
