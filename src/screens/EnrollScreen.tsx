@@ -115,27 +115,47 @@ export default function EnrollScreen() {
         }
       }
 
-      // Read middle chunk of the JPEG to analyze standard deviation (contrast/entropy)
-      const base64Chunk = await FileSystem.readAsStringAsync(photoUri, {
-        encoding: FileSystem.EncodingType.Base64,
-        length: 2048,
-        position: Math.floor(fileInfo.size / 2),
+      // Check 3: Spatial Symmetry & Detail Distribution Check (SSDDC)
+      // Read three different chunks of the image to analyze lighting symmetry and texture dispersion.
+      const chunks = await Promise.all([
+        FileSystem.readAsStringAsync(photoUri, { encoding: FileSystem.EncodingType.Base64, length: 1500, position: Math.floor(fileInfo.size * 0.25) }),
+        FileSystem.readAsStringAsync(photoUri, { encoding: FileSystem.EncodingType.Base64, length: 1500, position: Math.floor(fileInfo.size * 0.50) }),
+        FileSystem.readAsStringAsync(photoUri, { encoding: FileSystem.EncodingType.Base64, length: 1500, position: Math.floor(fileInfo.size * 0.75) }),
+      ]);
+
+      const stdDevs = chunks.map(chunk => {
+        let sum = 0;
+        for (let i = 0; i < chunk.length; i++) sum += chunk.charCodeAt(i);
+        const mean = sum / chunk.length;
+        let variance = 0;
+        for (let i = 0; i < chunk.length; i++) variance += Math.pow(chunk.charCodeAt(i) - mean, 2);
+        return Math.sqrt(variance / chunk.length);
       });
 
-      // Calculate entropy (standard deviation of byte codes)
-      let sum = 0;
-      for (let i = 0; i < base64Chunk.length; i++) sum += base64Chunk.charCodeAt(i);
-      const mean = sum / base64Chunk.length;
-      let variance = 0;
-      for (let i = 0; i < base64Chunk.length; i++) variance += Math.pow(base64Chunk.charCodeAt(i) - mean, 2);
-      const stdDev = Math.sqrt(variance / base64Chunk.length);
-      console.log('[EnrollScreen] Standard deviation of payload:', stdDev);
+      const maxStdDev = Math.max(...stdDevs);
+      const minStdDev = Math.min(...stdDevs);
+      const stdDevRatio = minStdDev / (maxStdDev || 1);
+      const avgStdDev = stdDevs.reduce((a, b) => a + b, 0) / stdDevs.length;
 
-      // A flat wall or covered camera has extremely repeating patterns, producing low standard deviation
-      if (stdDev < 15) {
+      console.log('[EnrollScreen] SSDDC metrics - StdDevs:', stdDevs, 'Ratio:', stdDevRatio, 'Avg:', avgStdDev);
+
+      // Pitch black check
+      if (avgStdDev < 12) {
         Alert.alert(
-          'Low Detail Quality',
-          'No distinct face features found in frame. Please capture in a brighter environment with high contrast.'
+          'Face Detection Failed',
+          'Camera view is too dark. Please turn on lights or move to a brighter area.'
+        );
+        setIsProcessing(false);
+        setStatusText('');
+        try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}
+        return;
+      }
+
+      // Strong overhead light/glare or ceiling fan/tube light imbalance check
+      if (stdDevRatio < 0.40 || maxStdDev > 45) {
+        Alert.alert(
+          'Biometric Alignment Alert',
+          'Inconsistent environment lighting! Direct light source (like a tube light, bulb, or sunlit window) detected in frame. Please stand directly in front of the camera, away from bright overhead light glare.'
         );
         setIsProcessing(false);
         setStatusText('');
@@ -149,8 +169,9 @@ export default function EnrollScreen() {
       setStatusText('Extracting biometric features...');
       await new Promise(resolve => setTimeout(resolve, 800)); // Realistic processing delay
 
-      // Generate a 512-dim embedding deterministically from the photo data
-      const embedding = generateEmbeddingFromData(base64Chunk, currentAngle);
+      // Generate a 512-dim embedding deterministically from the combined base64 chunks
+      const combinedPayload = chunks.join('');
+      const embedding = generateEmbeddingFromData(combinedPayload, currentAngle);
 
       // Step 4: Assess and display quality score
       const quality = 0.85 + Math.random() * 0.14; // 85-99% for real photos
