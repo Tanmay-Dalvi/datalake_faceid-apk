@@ -10,6 +10,7 @@
  */
 
 import { loadTensorflowModel } from 'react-native-fast-tflite';
+import { Asset } from 'expo-asset';
 import { PreprocessingService } from './PreprocessingService';
 
 const modelAsset = require('../../assets/models/mobilefacenet_int8.tflite');
@@ -34,9 +35,19 @@ class FaceRecognitionServiceClass {
 
   async initialize(): Promise<void> {
     try {
-      this.model = await loadTensorflowModel(modelAsset);
+      console.log('[FaceRecognition] Downloading MobileFaceNet asset from module...');
+      const asset = Asset.fromModule(modelAsset);
+      await asset.downloadAsync();
+      
+      const localPath = asset.localUri;
+      if (!localPath) {
+        throw new Error('Failed to resolve local URI for MobileFaceNet model asset');
+      }
+      
+      console.log('[FaceRecognition] Loading local model path into TFLite interpreter:', localPath);
+      this.model = await loadTensorflowModel({ url: localPath });
       this.isLoaded = true;
-      console.log('[FaceRecognition] MobileFaceNet INT8 loaded successfully');
+      console.log('[FaceRecognition] MobileFaceNet INT8 loaded successfully from local storage');
     } catch (err) {
       console.error('[FaceRecognition] Model load failed:', err);
       throw err;

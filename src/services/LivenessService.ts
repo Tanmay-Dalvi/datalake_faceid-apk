@@ -17,6 +17,7 @@
  */
 
 import { loadTensorflowModel } from 'react-native-fast-tflite';
+import { Asset } from 'expo-asset';
 
 const padModelAsset = require('../../assets/models/minixception_pad_int8.tflite');
 const landmarkModelAsset = require('../../assets/models/mediapipe_face_mesh.tflite');
@@ -59,14 +60,32 @@ class LivenessServiceClass {
 
   async initialize(): Promise<void> {
     try {
-      const [pad, landmarks] = await Promise.all([
-        loadTensorflowModel(padModelAsset),
-        loadTensorflowModel(landmarkModelAsset),
+      console.log('[Liveness] Downloading PAD and Face Mesh models from modules...');
+      const padAsset = Asset.fromModule(padModelAsset);
+      const landmarkAsset = Asset.fromModule(landmarkModelAsset);
+      
+      await Promise.all([
+        padAsset.downloadAsync(),
+        landmarkAsset.downloadAsync(),
       ]);
+      
+      const padPath = padAsset.localUri;
+      const landmarkPath = landmarkAsset.localUri;
+      
+      if (!padPath || !landmarkPath) {
+        throw new Error('Failed to resolve local URIs for liveness model assets');
+      }
+      
+      console.log('[Liveness] Loading local models into TFLite interpreters:', { padPath, landmarkPath });
+      const [pad, landmarks] = await Promise.all([
+        loadTensorflowModel({ url: padPath }),
+        loadTensorflowModel({ url: landmarkPath }),
+      ]);
+      
       this.padModel = pad;
       this.landmarkModel = landmarks;
       this.isLoaded = true;
-      console.log('[Liveness] PAD + Landmark models loaded');
+      console.log('[Liveness] PAD + Landmark models loaded successfully from local storage');
     } catch (err) {
       console.error('[Liveness] Model load failed:', err);
       throw err;
