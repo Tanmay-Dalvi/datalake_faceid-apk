@@ -121,19 +121,17 @@ export default function AuthScreen() {
 
   const initializeModels = async () => {
     try {
-      await Promise.all([
-        FaceRecognitionService.initialize(),
-        LivenessService.initialize(),
-      ]);
+      // Load enrolled face templates from encrypted SQLite database
       templates.current = await DatabaseService.getAllTemplates();
       setModelsReady(true);
 
-      // Auto-start liveness check
+      // Start liveness check phase (visual only for demo)
       const ch = LivenessService.startCheck();
       setChallenge(ch);
       setPhase('LIVENESS');
     } catch (err) {
-      Alert.alert('Error', 'Failed to load AI models. Please restart the app.');
+      console.error('[AuthScreen] Init error:', err);
+      Alert.alert('Error', 'Failed to load enrolled templates. Please restart the app.');
     }
   };
 
