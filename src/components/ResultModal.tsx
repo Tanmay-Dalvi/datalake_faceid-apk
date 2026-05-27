@@ -1,21 +1,30 @@
 // ResultModal.tsx
 import React, { useRef, useEffect } from 'react';
 import { StyleSheet, View, Text, Animated, TouchableOpacity } from 'react-native';
-import { RecognitionResult } from '../services/FaceRecognitionService';
 import { COLORS, FONTS, RADIUS, SPACING } from '../utils/theme';
+
+interface ResultData {
+  matched: boolean;
+  personId: string | null;
+  personName?: string;
+  similarity: number;
+  processingMs: number;
+}
 
 interface Props {
   phase: 'GRANTED' | 'DENIED';
-  result: RecognitionResult;
+  result: ResultData;
+  personName?: string;
   onDismiss: () => void;
 }
 
-export default function ResultModal({ phase, result, onDismiss }: Props) {
+export default function ResultModal({ phase, result, personName, onDismiss }: Props) {
   const slideAnim = useRef(new Animated.Value(60)).current;
   const fadeAnim  = useRef(new Animated.Value(0)).current;
 
   const isGranted = phase === 'GRANTED';
   const color = isGranted ? COLORS.success : COLORS.danger;
+  const displayName = personName || result.personName || result.personId || 'Unknown';
 
   useEffect(() => {
     Animated.parallel([
@@ -44,8 +53,8 @@ export default function ResultModal({ phase, result, onDismiss }: Props) {
         {isGranted ? 'ACCESS GRANTED' : 'ACCESS DENIED'}
       </Text>
 
-      {isGranted && result.personId && (
-        <Text style={styles.personId}>{result.personId}</Text>
+      {isGranted && (
+        <Text style={styles.personName}>{displayName}</Text>
       )}
 
       <View style={styles.confRow}>
@@ -71,7 +80,7 @@ export default function ResultModal({ phase, result, onDismiss }: Props) {
   );
 }
 
-// ── StatusBar component (separate export) ──────────────────────────────────
+// ── StatusBar component (separate export for backward compat) ─────────────
 interface StatusBarProps {
   phase: string;
   isOnline: boolean;
@@ -117,7 +126,7 @@ const styles = StyleSheet.create({
   },
   icon: { fontSize: 32 },
   statusText: { fontSize: 18, fontWeight: '800', letterSpacing: 2, fontFamily: FONTS.heading, marginBottom: 8 },
-  personId: { fontSize: 14, color: COLORS.textSecondary, marginBottom: 12 },
+  personName: { fontSize: 16, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 12 },
   confRow: {
     flexDirection: 'row', justifyContent: 'space-between',
     width: '100%', paddingVertical: 4,

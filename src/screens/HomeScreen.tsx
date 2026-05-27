@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Animated, Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import NetInfo from '@react-native-community/netinfo';
 import { SyncService } from '../services/SyncService';
 import { DatabaseService } from '../services/DatabaseService';
 import { COLORS, FONTS, SPACING, RADIUS } from '../utils/theme';
@@ -30,15 +31,22 @@ export default function HomeScreen() {
       ])
     ).start();
 
-    const unsubscribe = SyncService.onStatusChange((status, count) => {
+    const unsubscribeSync = SyncService.onStatusChange((status, count) => {
       setSyncStatus(status);
       setPendingCount(count);
     });
 
-    setIsOnline(SyncService.getOnlineStatus());
+    // Real-time network status listener — updates LIVE when toggling wifi/data
+    const unsubscribeNet = NetInfo.addEventListener(state => {
+      setIsOnline(!!(state.isConnected && state.isInternetReachable));
+    });
+
     DatabaseService.getRecordCount().then(c => setPendingCount(c.pending));
 
-    return unsubscribe;
+    return () => {
+      unsubscribeSync();
+      unsubscribeNet();
+    };
   }, []);
 
   return (
