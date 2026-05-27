@@ -250,8 +250,13 @@ class DatabaseServiceClass {
 
   private async decryptEmbedding(encrypted: string, iv: string): Promise<Float32Array> {
     const bytes = Buffer.from(encrypted, 'base64');
-    const floats = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
-    return floats;
+    // Copy to a properly aligned ArrayBuffer to prevent Float32Array alignment issues.
+    // Buffer.from() may return a Buffer whose byteOffset is not 4-byte aligned,
+    // which causes incorrect values or crashes on some devices.
+    const aligned = new ArrayBuffer(bytes.byteLength);
+    const view = new Uint8Array(aligned);
+    view.set(bytes);
+    return new Float32Array(aligned);
   }
 
   private async generateId(): Promise<string> {

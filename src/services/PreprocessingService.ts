@@ -11,6 +11,11 @@
  * deep shadow, and partial occlusion.
  */
 
+import * as FileSystem from 'expo-file-system';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { decode as decodeJpeg } from 'jpeg-js';
+import { Buffer } from 'buffer';
+
 const CLIP_LIMIT = 2.0;
 const TILE_SIZE = 8; // 8x8 tiles for CLAHE
 
@@ -30,6 +35,56 @@ export interface FaceDetection {
 }
 
 class PreprocessingServiceClass {
+
+  /**
+   * Load a camera photo file and convert it to raw RGBA pixel data.
+   * Uses native image manipulation for fast resize, then pure-JS JPEG decoding.
+   *
+   * @param photoUri - file:// URI of the captured photo (JPEG)
+   * @param targetW  - Target width (default 112 for MobileFaceNet)
+   * @param targetH  - Target height (default 112 for MobileFaceNet)
+   * @returns RGBA pixel buffer at target dimensions, or null on failure
+   */
+  async loadPhotoAsRGBA(
+    photoUri: string,
+    targetW: number = 112,
+    targetH: number = 112
+  ): Promise<{ data: Uint8Array; width: number; height: number } | null> {
+    try {
+      // Step 1: Resize image to target dimensions using native image manipulation
+      // This is fast and memory-efficient (avoids decoding a full 12MP photo in JS)
+      const resized = await manipulateAsync(
+        photoUri,
+        [{ resize: { width: targetW, height: targetH } }],
+        { format: SaveFormat.JPEG, compress: 1.0, base64: true }
+      );
+
+      if (!resized.base64) {
+        console.error('[Preprocessing] Image manipulation returned no base64 data');
+        return null;
+      }
+
+      // Step 2: Decode the small JPEG to raw RGBA pixel data
+      const jpegBuffer = Buffer.from(resized.base64, 'base64');
+      const decoded = decodeJpeg(jpegBuffer, { useTArray: true, formatAsRGBA: true });
+
+      // Clean up the resized temp file
+      if (resized.uri) {
+        try { await FileSystem.deleteAsync(resized.uri, { idempotent: true }); } catch {}
+      }
+
+      console.log(`[Preprocessing] Photo decoded: ${decoded.width}×${decoded.height}, ${decoded.data.length} bytes RGBA`);
+
+      return {
+        data: decoded.data as Uint8Array,
+        width: decoded.width,
+        height: decoded.height,
+      };
+    } catch (err) {
+      console.error('[Preprocessing] Failed to load photo as RGBA:', err);
+      return null;
+    }
+  }
 
   /**
    * Full preprocessing pipeline for a raw camera frame.

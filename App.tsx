@@ -13,6 +13,7 @@ import DashboardScreen from './src/screens/DashboardScreen';
 import SyncScreen from './src/screens/SyncScreen';
 
 import { DatabaseService } from './src/services/DatabaseService';
+import { FaceRecognitionService } from './src/services/FaceRecognitionService';
 import { SyncService } from './src/services/SyncService';
 
 const Stack = createStackNavigator();
@@ -22,6 +23,10 @@ export default function App() {
     const initApp = async () => {
       try {
         await DatabaseService.initialize();
+        // Start ML model loading early (non-blocking)
+        FaceRecognitionService.initialize().catch(err => {
+          console.warn('[App] FaceRecognition model pre-load failed (will retry in screens):', err);
+        });
         SyncService.startNetworkListener();
       } catch (error) {
         console.error('[App] Initialization failed:', error);

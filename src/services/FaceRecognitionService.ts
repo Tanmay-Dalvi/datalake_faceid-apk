@@ -14,6 +14,7 @@ import { Asset } from 'expo-asset';
 import { PreprocessingService } from './PreprocessingService';
 
 const modelAsset = require('../../assets/models/mobilefacenet_int8.tflite');
+const landmarkModelAsset = require('../../assets/models/mediapipe_face_mesh.tflite');
 const COSINE_THRESHOLD = 0.65; // Tuned for Indian demographic dataset
 
 export interface FaceEmbedding {
@@ -29,27 +30,58 @@ export interface RecognitionResult {
   processingMs: number;
 }
 
+export interface PoseData {
+  faceDetected: boolean;
+  confidence: number;
+  yaw: number;
+  pitch: number;
+  pose: 'Front' | 'Slight Left' | 'Slight Right' | 'Look Up' | 'Look Down' | 'Unknown';
+}
+
 class FaceRecognitionServiceClass {
   private model: any = null;
+  private landmarkModel: any = null;
   private isLoaded = false;
+  private initPromise: Promise<void> | null = null;
 
   async initialize(): Promise<void> {
+    if (this.isLoaded) return;
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this._doInitialize();
+    return this.initPromise;
+  }
+
+  private async _doInitialize(): Promise<void> {
     try {
-      console.log('[FaceRecognition] Downloading MobileFaceNet asset from module...');
-      const asset = Asset.fromModule(modelAsset);
-      await asset.downloadAsync();
+      console.log('[FaceRecognition] Resolving model assets...');
+      const modelAst = Asset.fromModule(modelAsset);
+      const landmarkAst = Asset.fromModule(landmarkModelAsset);
       
-      const localPath = asset.localUri;
-      if (!localPath) {
-        throw new Error('Failed to resolve local URI for MobileFaceNet model asset');
+      await Promise.all([
+        modelAst.downloadAsync(),
+        landmarkAst.downloadAsync(),
+      ]);
+      
+      const modelPath = modelAst.localUri;
+      const landmarkPath = landmarkAst.localUri;
+      
+      if (!modelPath || !landmarkPath) {
+        throw new Error('Failed to resolve local URIs for face models');
       }
       
-      console.log('[FaceRecognition] Loading local model path into TFLite interpreter:', localPath);
-      this.model = await loadTensorflowModel({ url: localPath });
+      console.log('[FaceRecognition] Loading models into TFLite interpreter...');
+      const [model, landmarkModel] = await Promise.all([
+        loadTensorflowModel({ url: modelPath }),
+        loadTensorflowModel({ url: landmarkPath }),
+      ]);
+      
+      this.model = model;
+      this.landmarkModel = landmarkModel;
       this.isLoaded = true;
-      console.log('[FaceRecognition] MobileFaceNet INT8 loaded successfully from local storage');
+      console.log('[FaceRecognition] All face models loaded successfully');
     } catch (err) {
       console.error('[FaceRecognition] Model load failed:', err);
+      this.initPromise = null; // Allow retry on failure
       throw err;
     }
   }
@@ -82,6 +114,97 @@ class FaceRecognitionServiceClass {
       timestamp: Date.now(),
       confidence: this.getEmbeddingConfidence(normalized),
     };
+  }
+
+  /**
+   * Detect face presence and estimate head pose using 468 landmarks from MediaPipe Face Mesh
+   */
+  async detectFaceAndPose(frameData: Uint8Array): Promise<PoseData> {
+    if (!this.isLoaded || !this.landmarkModel) {
+      console.warn('[FaceRecognition] Landmark model not initialized');
+      return { faceDetected: false, confidence: 0, yaw: 0, pitch: 0, pose: 'Unknown' };
+    }
+
+    try {
+      // Preprocess frame at 192x192 as required by MediaPipe Face Mesh
+      const preprocessed = await PreprocessingService.preprocessFrame(frameData, 192, 192);
+      if (!preprocessed) {
+        return { faceDetected: false, confidence: 0, yaw: 0, pitch: 0, pose: 'Unknown' };
+      }
+
+      // Run inference
+      const output = await this.landmarkModel.run([preprocessed]);
+      const landmarksFlat = output[0] as Float32Array;
+      
+      // Output 1 is the presence/confidence score
+      const presenceScore = output[1] ? (output[1] as Float32Array)[0] : 1.0;
+      console.log(`[FaceRecognition] Face presence score: ${presenceScore.toFixed(4)}`);
+
+      // Gating: If presence confidence is low, there is no face
+      if (presenceScore < 0.45) {
+        return { faceDetected: false, confidence: presenceScore, yaw: 0, pitch: 0, pose: 'Unknown' };
+      }
+
+      const points = [];
+      for (let i = 0; i < landmarksFlat.length; i += 3) {
+        points.push({
+          x: landmarksFlat[i],
+          y: landmarksFlat[i+1],
+          z: landmarksFlat[i+2],
+        });
+      }
+
+      if (points.length < 468) {
+        return { faceDetected: false, confidence: presenceScore, yaw: 0, pitch: 0, pose: 'Unknown' };
+      }
+
+      // Landmarks indices:
+      // Nose Tip: 1
+      // Left Ear Profile: 234
+      // Right Ear Profile: 454
+      // Forehead: 10
+      // Chin: 152
+      const nose = points[1];
+      const leftEar = points[234];
+      const rightEar = points[454];
+      const forehead = points[10];
+      const chin = points[152];
+
+      // Calculate distances for horizontal turn (Yaw)
+      const dLeft = Math.sqrt((nose.x - leftEar.x) ** 2 + (nose.y - leftEar.y) ** 2);
+      const dRight = Math.sqrt((nose.x - rightEar.x) ** 2 + (nose.y - rightEar.y) ** 2);
+      const dTotal = dLeft + dRight;
+      const yaw = (dLeft - dRight) / (dTotal || 1);
+
+      // Calculate distances for vertical turn (Pitch)
+      const dForehead = Math.sqrt((nose.x - forehead.x) ** 2 + (nose.y - forehead.y) ** 2);
+      const dChin = Math.sqrt((nose.x - chin.x) ** 2 + (nose.y - chin.y) ** 2);
+      const dVert = dForehead + dChin;
+      const pitch = (dForehead - dChin) / (dVert || 1);
+
+      // Detect Pose
+      let pose: PoseData['pose'] = 'Front';
+      if (yaw < -0.09) {
+        pose = 'Slight Left';
+      } else if (yaw > 0.09) {
+        pose = 'Slight Right';
+      } else if (pitch < -0.09) {
+        pose = 'Look Up';
+      } else if (pitch > 0.09) {
+        pose = 'Look Down';
+      }
+
+      return {
+        faceDetected: true,
+        confidence: presenceScore,
+        yaw,
+        pitch,
+        pose,
+      };
+    } catch (err) {
+      console.error('[FaceRecognition] detectFaceAndPose failed:', err);
+      return { faceDetected: false, confidence: 0, yaw: 0, pitch: 0, pose: 'Unknown' };
+    }
   }
 
   /**

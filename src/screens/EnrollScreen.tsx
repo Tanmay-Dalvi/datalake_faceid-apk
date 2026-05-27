@@ -7,16 +7,13 @@ import { Camera, useCameraDevice } from 'react-native-vision-camera';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system';
 import { DatabaseService } from '../services/DatabaseService';
+import { FaceRecognitionService } from '../services/FaceRecognitionService';
+import { PreprocessingService } from '../services/PreprocessingService';
 import { COLORS, FONTS, SPACING, RADIUS } from '../utils/theme';
 
 type EnrollPhase = 'FORM' | 'CAPTURE' | 'PROCESSING' | 'DONE' | 'ERROR';
 
 const CAPTURE_ANGLES = ['Front', 'Slight Left', 'Slight Right', 'Look Up', 'Look Down'];
-
-// Minimum JPEG file size (bytes) for a valid face photo.
-// A photo of a face at 112x112+ resolution is typically > 8KB.
-// A completely dark/blank/covered frame will compress much smaller.
-const MIN_FACE_PHOTO_SIZE = 6000;
 
 export default function EnrollScreen() {
   const navigation = useNavigation<any>();
@@ -33,17 +30,38 @@ export default function EnrollScreen() {
   const [embeddings, setEmbeddings] = useState<Float32Array[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusText, setStatusText] = useState('');
+  const [modelsReady, setModelsReady] = useState(false);
 
   const progressAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+    initializeModels();
   }, []);
+
+  const initializeModels = async () => {
+    try {
+      await FaceRecognitionService.initialize();
+      setModelsReady(true);
+      console.log('[EnrollScreen] ML models ready');
+    } catch (err) {
+      console.error('[EnrollScreen] Model initialization failed:', err);
+      Alert.alert(
+        'Model Error',
+        'Failed to load face recognition model. Please restart the app.',
+        [{ text: 'Go Back', onPress: () => navigation.goBack() }]
+      );
+    }
+  };
 
   const handleStartCapture = () => {
     if (!name.trim() || !employeeCode.trim()) {
       Alert.alert('Missing Info', 'Please enter name and employee code.');
+      return;
+    }
+    if (!modelsReady) {
+      Alert.alert('Loading', 'Face recognition model is still loading. Please wait a moment.');
       return;
     }
     setPhase('CAPTURE');
@@ -52,13 +70,10 @@ export default function EnrollScreen() {
     setEmbeddings([]);
   };
 
-  // Ref to track last captured photo size to detect cheating with static empty backgrounds
-  const lastCapturedSize = useRef<number>(0);
-
   const handleCapture = async () => {
     if (isProcessing) return; // Prevent double-tap
     setIsProcessing(true);
-    setStatusText('Detecting face...');
+    setStatusText('Capturing...');
 
     try {
       // Step 1: Take a REAL photo from the camera
@@ -69,29 +84,34 @@ export default function EnrollScreen() {
         return;
       }
 
-      const photo = await cameraRef.current.takePhoto({
-        qualityPrioritization: 'speed',
-      });
-
+      const photo = await cameraRef.current.takePhoto({});
       const photoUri = `file://${photo.path}`;
 
-      // Step 2: Check photo file size as face-presence heuristic
-      // Solid/covered JPEGs compress extremely small (<300KB), whereas a highly structured scene (face + hair + details) is >400KB
-      const fileInfo = await FileSystem.getInfoAsync(photoUri);
-      if (!fileInfo.exists) {
-        Alert.alert('Camera Error', 'Could not access the captured frame.');
+      // Step 2: Convert photo to 192x192 RGBA pixel data for Face Presence & Pose Detection
+      setStatusText('Detecting face...');
+      const pixels192 = await PreprocessingService.loadPhotoAsRGBA(photoUri, 192, 192);
+
+      if (!pixels192) {
+        Alert.alert('Processing Error', 'Failed to process the captured image. Please try again.');
         setIsProcessing(false);
         setStatusText('');
+        try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}
         return;
       }
 
-      console.log('[EnrollScreen] Captured file size:', fileInfo.size);
+      // Step 3: Run face presence and pose estimation via Face Mesh
+      const poseData = await FaceRecognitionService.detectFaceAndPose(pixels192.data);
+      console.log('[EnrollScreen] Face detection and pose result:', poseData);
 
-      // Check 1: Face Presence / Low-Detail Check
-      if (fileInfo.size < 400000) {
+      // Verify that a real face is present
+      if (!poseData.faceDetected) {
         Alert.alert(
-          'Face Detection Failed',
-          'No clear face detected! Please ensure you are standing in a well-lit room, facing the camera directly, and that the camera lens is uncovered.'
+          'No Face Detected',
+          'Could not find a human face in the camera view.\n\n' +
+          'Please ensure:\n' +
+          '• You are holding the camera directly in front of your face\n' +
+          '• There is good, even lighting (no dark shadows or harsh backlights)\n' +
+          '• You are not showing an empty room, wall, or object'
         );
         setIsProcessing(false);
         setStatusText('');
@@ -99,52 +119,51 @@ export default function EnrollScreen() {
         return;
       }
 
-      // Check 2: Static Scene Detector (detects if user is pointing at a flat ceiling or covered lens)
-      if (lastCapturedSize.current > 0) {
-        const sizeDiff = Math.abs(fileInfo.size - lastCapturedSize.current) / lastCapturedSize.current;
-        console.log('[EnrollScreen] Frame size variance:', sizeDiff);
-        if (sizeDiff < 0.003) {
-          Alert.alert(
-            'Position Verification Failed',
-            `Static scene detected! Please turn your head slightly to match the requested angle: ${CAPTURE_ANGLES[currentAngle]}.`
-          );
-          setIsProcessing(false);
-          setStatusText('');
-          try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}
-          return;
+      // Verify that the face pose matches the requested angle
+      const expectedAngle = CAPTURE_ANGLES[currentAngle]; // 'Front' | 'Slight Left' | 'Slight Right' | 'Look Up' | 'Look Down'
+      let poseMatches = false;
+      let incorrectMsg = '';
+
+      if (expectedAngle === 'Front') {
+        // Enforce straight head pose
+        if (Math.abs(poseData.yaw) < 0.08 && Math.abs(poseData.pitch) < 0.08) {
+          poseMatches = true;
+        } else {
+          incorrectMsg = 'Please look directly straight at the camera lens.';
+        }
+      } else if (expectedAngle === 'Slight Left') {
+        // Enforce turned left (support horizontal turn magnitude to avoid mirroring frustration)
+        if (Math.abs(poseData.yaw) > 0.08) {
+          poseMatches = true;
+        } else {
+          incorrectMsg = 'Please turn your head slightly to the left.';
+        }
+      } else if (expectedAngle === 'Slight Right') {
+        if (Math.abs(poseData.yaw) > 0.08) {
+          poseMatches = true;
+        } else {
+          incorrectMsg = 'Please turn your head slightly to the right.';
+        }
+      } else if (expectedAngle === 'Look Up') {
+        if (Math.abs(poseData.pitch) > 0.08) {
+          poseMatches = true;
+        } else {
+          incorrectMsg = 'Please tilt your head slightly upwards.';
+        }
+      } else if (expectedAngle === 'Look Down') {
+        if (Math.abs(poseData.pitch) > 0.08) {
+          poseMatches = true;
+        } else {
+          incorrectMsg = 'Please tilt your head slightly downwards.';
         }
       }
 
-      // Check 3: Spatial Symmetry & Detail Distribution Check (SSDDC)
-      // Read three different chunks of the image to analyze lighting symmetry and texture dispersion.
-      // We start at 35% of the file size to completely bypass the identical JPEG file header.
-      const chunks = await Promise.all([
-        FileSystem.readAsStringAsync(photoUri, { encoding: FileSystem.EncodingType.Base64, length: 1500, position: Math.floor(fileInfo.size * 0.35) }),
-        FileSystem.readAsStringAsync(photoUri, { encoding: FileSystem.EncodingType.Base64, length: 1500, position: Math.floor(fileInfo.size * 0.55) }),
-        FileSystem.readAsStringAsync(photoUri, { encoding: FileSystem.EncodingType.Base64, length: 1500, position: Math.floor(fileInfo.size * 0.75) }),
-      ]);
-
-      const stdDevs = chunks.map(chunk => {
-        let sum = 0;
-        for (let i = 0; i < chunk.length; i++) sum += chunk.charCodeAt(i);
-        const mean = sum / chunk.length;
-        let variance = 0;
-        for (let i = 0; i < chunk.length; i++) variance += Math.pow(chunk.charCodeAt(i) - mean, 2);
-        return Math.sqrt(variance / chunk.length);
-      });
-
-      const maxStdDev = Math.max(...stdDevs);
-      const minStdDev = Math.min(...stdDevs);
-      const stdDevRatio = minStdDev / (maxStdDev || 1);
-      const avgStdDev = stdDevs.reduce((a, b) => a + b, 0) / stdDevs.length;
-
-      console.log('[EnrollScreen] SSDDC metrics - StdDevs:', stdDevs, 'Ratio:', stdDevRatio, 'Avg:', avgStdDev);
-
-      // Pitch black check or low detail check
-      if (avgStdDev < 15) {
+      if (!poseMatches) {
         Alert.alert(
-          'Face Detection Failed',
-          'Camera view is too dark or lacks texture details. Please stand in a well-lit room and face the camera.'
+          'Incorrect Angle',
+          `The camera detected you are not looking in the correct direction.\n\n` +
+          `Requested: ${expectedAngle}\n` +
+          `${incorrectMsg}`
         );
         setIsProcessing(false);
         setStatusText('');
@@ -152,35 +171,49 @@ export default function EnrollScreen() {
         return;
       }
 
-      // Strong overhead light/glare or ceiling fan/tube light imbalance check (faces have a ratio > 0.55)
-      if (stdDevRatio < 0.55 || maxStdDev > 45) {
-        Alert.alert(
-          'Biometric Alignment Alert',
-          'Direct overhead light source, bright background window, or high contrast ceiling glare detected! Please align your face inside the circle, step away from bright ceiling lights, and face a balanced wall.'
-        );
-        setIsProcessing(false);
-        setStatusText('');
-        try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}
-        return;
-      }
-
-      lastCapturedSize.current = fileInfo.size;
-
-      // Step 3: Extract biometric features
+      // Step 4: Convert photo to 112×112 RGBA pixel data for MobileFaceNet embedding extraction
       setStatusText('Extracting biometric features...');
-      await new Promise(resolve => setTimeout(resolve, 800)); // Realistic processing delay
+      const pixels112 = await PreprocessingService.loadPhotoAsRGBA(photoUri, 112, 112);
+      
+      // Clean up original photo file immediately
+      try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}
 
-      // Generate a 512-dim embedding deterministically from the combined base64 chunks
-      const combinedPayload = chunks.join('');
-      const embedding = generateEmbeddingFromData(combinedPayload, currentAngle);
+      if (!pixels112) {
+        Alert.alert('Processing Error', 'Failed to extract face embedding. Please try again.');
+        setIsProcessing(false);
+        setStatusText('');
+        return;
+      }
 
-      // Step 4: Assess and display quality score
-      const quality = 0.85 + Math.random() * 0.14; // 85-99% for real photos
-      setQualityScore(quality);
+      // Step 5: Extract embedding
+      const faceEmbedding = await FaceRecognitionService.extractEmbedding(pixels112.data);
 
+      if (!faceEmbedding) {
+        Alert.alert(
+          'Embedding Error',
+          'Failed to extract biometric features. Please try again under better lighting.'
+        );
+        setIsProcessing(false);
+        setStatusText('');
+        return;
+      }
+
+      // Step 6: Validate embedding quality
+      if (faceEmbedding.confidence < 0.10) {
+        Alert.alert(
+          'Low Quality Image',
+          'The captured image quality is too low. Please improve lighting or adjust your position.'
+        );
+        setIsProcessing(false);
+        setStatusText('');
+        return;
+      }
+
+      // ✓ Success! Face detected, pose matched, and embedding extracted
+      setQualityScore(faceEmbedding.confidence);
       setStatusText('Face captured ✓');
 
-      const newEmbeddings = [...embeddings, embedding];
+      const newEmbeddings = [...embeddings, faceEmbedding.vector];
       setEmbeddings(newEmbeddings);
 
       const newCount = capturedCount + 1;
@@ -193,9 +226,6 @@ export default function EnrollScreen() {
         useNativeDriver: false,
       }).start();
 
-      // Clean up the photo file
-      try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}
-
       if (newCount < CAPTURE_ANGLES.length) {
         setCurrentAngle(newCount);
         setTimeout(() => {
@@ -203,7 +233,7 @@ export default function EnrollScreen() {
           setIsProcessing(false);
         }, 600);
       } else {
-        // All angles captured
+        // All angles captured — finalize enrollment
         await finalizeEnrollment(newEmbeddings);
         setIsProcessing(false);
         setStatusText('');
@@ -214,36 +244,6 @@ export default function EnrollScreen() {
       setIsProcessing(false);
       setStatusText('');
     }
-  };
-
-  /**
-   * Generate a 512-dim L2-normalized embedding from photo data.
-   * Uses a deterministic random projection (Locality Sensitive Hashing) matrix
-   * with zero-bias normal distribution weights, ensuring different visual payloads
-   * generate highly orthogonal vectors, while similar faces/clothing remain tightly clustered.
-   */
-  const generateEmbeddingFromData = (base64Data: string, angle: number): Float32Array => {
-    const raw = new Float32Array(512);
-    
-    for (let i = 0; i < 512; i++) {
-      let sum = 0;
-      for (let j = 0; j < 32; j++) {
-        // Deterministic pseudo-random normal projection weights using sine wave oscillation
-        const weight = Math.sin(i * 17.293 + j * 37.719 + angle * 13.137);
-        const val = base64Data.charCodeAt((i * 11 + j) % base64Data.length) / 255.0;
-        sum += val * weight;
-      }
-      raw[i] = sum;
-    }
-
-    // L2 normalize
-    let norm = 0;
-    for (let i = 0; i < 512; i++) norm += raw[i] * raw[i];
-    norm = Math.sqrt(norm);
-    const eps = 1e-8;
-    for (let i = 0; i < 512; i++) raw[i] /= (norm + eps);
-    
-    return raw;
   };
 
   const finalizeEnrollment = async (allEmbeddings: Float32Array[]) => {
@@ -280,7 +280,6 @@ export default function EnrollScreen() {
     setQualityScore(0);
     setStatusText('');
     progressAnim.setValue(0);
-    lastCapturedSize.current = 0;
   };
 
   if (!device && phase === 'CAPTURE') {
@@ -312,6 +311,17 @@ export default function EnrollScreen() {
                 5 frames are captured at different angles. A mean embedding is computed
                 and stored as an AES-256 encrypted template — no raw images saved.
               </Text>
+              {!modelsReady && (
+                <View style={styles.modelLoadingRow}>
+                  <ActivityIndicator size="small" color={COLORS.primary} />
+                  <Text style={styles.modelLoadingText}>Loading AI model...</Text>
+                </View>
+              )}
+              {modelsReady && (
+                <View style={styles.modelLoadingRow}>
+                  <Text style={styles.modelReadyText}>✓ AI model ready</Text>
+                </View>
+              )}
             </View>
 
             <View style={styles.field}>
@@ -349,8 +359,14 @@ export default function EnrollScreen() {
               </View>
             </View>
 
-            <TouchableOpacity style={styles.primaryBtn} onPress={handleStartCapture}>
-              <Text style={styles.primaryBtnText}>START CAPTURE</Text>
+            <TouchableOpacity
+              style={[styles.primaryBtn, !modelsReady && styles.primaryBtnDisabled]}
+              onPress={handleStartCapture}
+              disabled={!modelsReady}
+            >
+              <Text style={styles.primaryBtnText}>
+                {modelsReady ? 'START CAPTURE' : 'LOADING MODEL...'}
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -492,6 +508,10 @@ const styles = StyleSheet.create({
   infoTitle: { fontSize: 16, fontWeight: '700', color: COLORS.primary, marginBottom: 8 },
   infoText: { fontSize: 13, color: COLORS.textSecondary, lineHeight: 20 },
 
+  modelLoadingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 8 },
+  modelLoadingText: { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
+  modelReadyText: { fontSize: 12, color: COLORS.success, fontWeight: '600' },
+
   field: { marginBottom: SPACING.md },
   fieldLabel: { fontSize: 12, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 },
   input: {
@@ -507,6 +527,9 @@ const styles = StyleSheet.create({
   primaryBtn: {
     backgroundColor: COLORS.primary, borderRadius: RADIUS.lg,
     paddingVertical: SPACING.md, alignItems: 'center', marginTop: SPACING.md,
+  },
+  primaryBtnDisabled: {
+    backgroundColor: COLORS.border, opacity: 0.6,
   },
   primaryBtnText: { fontSize: 15, fontWeight: '800', color: '#000', letterSpacing: 2 },
 

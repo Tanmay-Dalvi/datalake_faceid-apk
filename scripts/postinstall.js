@@ -41,3 +41,48 @@ function walkDir(currentDir) {
 
 walkDir(buildDir);
 console.log(`[postinstall] Patched ${patched} expo-sqlite files recursively for Node.js 22 ESM compat`);
+
+// Patch react-native-fast-tflite to support file:// protocol on Android in release builds
+const tfliteModulePath = path.join(__dirname, '..', 'node_modules', 'react-native-fast-tflite', 'android', 'src', 'main', 'java', 'com', 'tflite', 'TfliteModule.java');
+
+if (fs.existsSync(tfliteModulePath)) {
+  let content = fs.readFileSync(tfliteModulePath, 'utf8');
+  if (!content.includes('url.startsWith("file:/")')) {
+    const target = '  @DoNotStrip\n  public static byte[] fetchByteDataFromUrl(String url) {\n    OkHttpClient';
+    const replacement = `  @DoNotStrip
+  public static byte[] fetchByteDataFromUrl(String url) {
+    if (url.startsWith("file:/") || url.startsWith("/")) {
+      try {
+        String path = url;
+        if (path.startsWith("file://")) {
+          path = path.substring(7);
+        } else if (path.startsWith("file:")) {
+          path = path.substring(5);
+        }
+        java.io.File file = new java.io.File(path);
+        int size = (int) file.length();
+        byte[] bytes = new byte[size];
+        try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
+          int bytesRead = 0;
+          while (bytesRead < size) {
+            int read = fis.read(bytes, bytesRead, size - bytesRead);
+            if (read == -1) break;
+            bytesRead += read;
+          }
+        }
+        return bytes;
+      } catch (Exception e) {
+        Log.e(NAME, "Failed to read local file " + url + "!", e);
+        return null;
+      }
+    }
+
+    OkHttpClient`;
+    
+    if (content.includes(target)) {
+      content = content.replace(target, replacement);
+      fs.writeFileSync(tfliteModulePath, content);
+      console.log('[postinstall] Patched react-native-fast-tflite for local file URI support on Android');
+    }
+  }
+}
