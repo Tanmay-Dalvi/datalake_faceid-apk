@@ -114,12 +114,20 @@ class FaceRecognitionServiceClass {
     const start = Date.now();
 
     // Preprocess: produce EXACT array type model expects (prevents size mismatch crash/garbage output)
-    const preprocessed = PreprocessingService.prepareForModel(
+    let preprocessed = PreprocessingService.prepareForModel(
       frameData, 
       112, 
       112, 
       this.modelInputType
     );
+
+    // Some models (like this specific mobilefacenet) unexpectedly require a batch size > 1
+    const expectedElements = this.model.inputs[0].shape.reduce((a, b) => a * b, 1);
+    if (preprocessed.length < expectedElements) {
+      const padded = new (preprocessed.constructor as any)(expectedElements);
+      padded.set(preprocessed, 0); // Copy our single image into the first batch slot
+      preprocessed = padded;
+    }
 
     // Run inference
     const output = await this.model.run([preprocessed]);
@@ -129,23 +137,20 @@ class FaceRecognitionServiceClass {
     let embedding: Float32Array;
     const rawOutput = output[0] as ArrayBufferView;
     
+    // Extract only the first batch's output (ignore phantom batched outputs)
+    const expectedOutDims = this.model.outputs[0].shape[this.model.outputs[0].shape.length - 1];
+
     if (rawOutput instanceof Float32Array) {
-      embedding = rawOutput;
+      embedding = new Float32Array(rawOutput.buffer, rawOutput.byteOffset, expectedOutDims);
     } else if (rawOutput instanceof Int8Array) {
-      // Dequantize (assuming rough standard int8 scale if model.outputs doesn't expose it)
-      // If we have actual scale/zero_point from model.outputs, we should use it
-      embedding = new Float32Array(rawOutput.length);
-      for(let i=0; i<rawOutput.length; i++) {
-        embedding[i] = rawOutput[i]; // raw copy, we will l2-normalize anyway
-      }
+      embedding = new Float32Array(expectedOutDims);
+      for(let i=0; i<expectedOutDims; i++) embedding[i] = rawOutput[i];
     } else if (rawOutput instanceof Uint8Array) {
-      embedding = new Float32Array(rawOutput.length);
-      for(let i=0; i<rawOutput.length; i++) {
-        embedding[i] = rawOutput[i];
-      }
+      embedding = new Float32Array(expectedOutDims);
+      for(let i=0; i<expectedOutDims; i++) embedding[i] = rawOutput[i];
     } else {
       // Fallback
-      embedding = new Float32Array(output[0] as any);
+      embedding = new Float32Array(rawOutput.buffer, rawOutput.byteOffset, expectedOutDims);
     }
 
     // Get confidence based on pre-normalized embedding norm
