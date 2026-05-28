@@ -131,7 +131,16 @@ export default function AuthScreen() {
       }
 
       // Step 4: Convert photo to 112×112 RGBA pixel data for MobileFaceNet embedding extraction
-      const pixels112 = await PreprocessingService.loadPhotoAsRGBA(photoUri, 112, 112);
+      let cropRect = undefined;
+      if (poseData.bbox) {
+        cropRect = {
+          x: Math.floor(poseData.bbox.x * photo.width),
+          y: Math.floor(poseData.bbox.y * photo.height),
+          width: Math.floor(poseData.bbox.width * photo.width),
+          height: Math.floor(poseData.bbox.height * photo.height),
+        };
+      }
+      const pixels112 = await PreprocessingService.loadPhotoAsRGBA(photoUri, 112, 112, cropRect);
 
       // Clean up photo file immediately
       try { await FileSystem.deleteAsync(photoUri, { idempotent: true }); } catch {}

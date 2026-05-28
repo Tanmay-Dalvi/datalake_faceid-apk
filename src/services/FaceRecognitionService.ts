@@ -36,6 +36,7 @@ export interface PoseData {
   yaw: number;
   pitch: number;
   pose: 'Front' | 'Slight Left' | 'Slight Right' | 'Look Up' | 'Look Down' | 'Unknown';
+  bbox?: { x: number, y: number, width: number, height: number };
 }
 
 class FaceRecognitionServiceClass {
@@ -197,18 +198,37 @@ class FaceRecognitionServiceClass {
         return { faceDetected: false, confidence: presenceScore, yaw: 0, pitch: 0, pose: 'Unknown' };
       }
 
+      let minX = 99999, minY = 99999, maxX = -99999, maxY = -99999;
       const points = [];
       for (let i = 0; i < landmarksFlat.length; i += 3) {
-        points.push({
-          x: landmarksFlat[i],
-          y: landmarksFlat[i+1],
-          z: landmarksFlat[i+2],
-        });
+        const x = landmarksFlat[i];
+        const y = landmarksFlat[i+1];
+        const z = landmarksFlat[i+2];
+        
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        
+        points.push({ x, y, z });
       }
 
       if (points.length < 468) {
         return { faceDetected: false, confidence: presenceScore, yaw: 0, pitch: 0, pose: 'Unknown' };
       }
+
+      // Compute normalized bounding box with 30% margin for FaceNet
+      const cx = (minX + maxX) / 2 / 192.0;
+      const cy = (minY + maxY) / 2 / 192.0;
+      const w = (maxX - minX) / 192.0 * 1.3;
+      const h = (maxY - minY) / 192.0 * 1.3;
+
+      const bbox = {
+        x: Math.max(0, cx - w/2),
+        y: Math.max(0, cy - h/2),
+        width: Math.min(1 - Math.max(0, cx - w/2), w),
+        height: Math.min(1 - Math.max(0, cy - h/2), h),
+      };
 
       // Landmarks indices:
       // Nose Tip: 1
@@ -252,6 +272,7 @@ class FaceRecognitionServiceClass {
         yaw,
         pitch,
         pose,
+        bbox,
       };
     } catch (err) {
       console.error('[FaceRecognition] detectFaceAndPose failed:', err);

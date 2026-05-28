@@ -54,14 +54,21 @@ class PreprocessingServiceClass {
   async loadPhotoAsRGBA(
     photoUri: string,
     targetW: number = 112,
-    targetH: number = 112
+    targetH: number = 112,
+    cropRect?: { x: number, y: number, width: number, height: number }
   ): Promise<{ data: Uint8Array; width: number; height: number } | null> {
     try {
-      // Step 1: Resize image to target dimensions using native image manipulation
+      // Step 1: Crop (if provided) and Resize image to target dimensions
       // This is fast and memory-efficient (avoids decoding a full 12MP photo in JS)
+      const actions: any[] = [];
+      if (cropRect) {
+        actions.push({ crop: { originX: cropRect.x, originY: cropRect.y, width: cropRect.width, height: cropRect.height } });
+      }
+      actions.push({ resize: { width: targetW, height: targetH } });
+
       const resized = await manipulateAsync(
         photoUri,
-        [{ resize: { width: targetW, height: targetH } }],
+        actions,
         { format: SaveFormat.JPEG, compress: 1.0, base64: true }
       );
 
