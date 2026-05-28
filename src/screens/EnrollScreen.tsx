@@ -126,32 +126,32 @@ export default function EnrollScreen() {
 
       if (expectedAngle === 'Front') {
         // Enforce straight head pose
-        if (Math.abs(poseData.yaw) < 0.08 && Math.abs(poseData.pitch) < 0.08) {
+        if (Math.abs(poseData.yaw) < 0.12 && Math.abs(poseData.pitch) < 0.12) {
           poseMatches = true;
         } else {
           incorrectMsg = 'Please look directly straight at the camera lens.';
         }
       } else if (expectedAngle === 'Slight Left') {
         // Enforce turned left (support horizontal turn magnitude to avoid mirroring frustration)
-        if (Math.abs(poseData.yaw) > 0.08) {
+        if (Math.abs(poseData.yaw) > 0.12) {
           poseMatches = true;
         } else {
           incorrectMsg = 'Please turn your head slightly to the left.';
         }
       } else if (expectedAngle === 'Slight Right') {
-        if (Math.abs(poseData.yaw) > 0.08) {
+        if (Math.abs(poseData.yaw) > 0.12) {
           poseMatches = true;
         } else {
           incorrectMsg = 'Please turn your head slightly to the right.';
         }
       } else if (expectedAngle === 'Look Up') {
-        if (Math.abs(poseData.pitch) > 0.08) {
+        if (Math.abs(poseData.pitch) > 0.12) {
           poseMatches = true;
         } else {
           incorrectMsg = 'Please tilt your head slightly upwards.';
         }
       } else if (expectedAngle === 'Look Down') {
-        if (Math.abs(poseData.pitch) > 0.08) {
+        if (Math.abs(poseData.pitch) > 0.12) {
           poseMatches = true;
         } else {
           incorrectMsg = 'Please tilt your head slightly downwards.';
